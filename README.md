@@ -75,25 +75,38 @@ bgremove spritesheet <spritesheet-file> <output-directory> [options]
 ```
 
 **Options:**
-- `--frame-width <int>`: Width of each frame in pixels (required)
-- `--frame-height <int>`: Height of each frame in pixels (required)
+- `--grid <WIDTHxHEIGHT>`: Grid layout (e.g., '5x2' for 5 frames per row, 2 rows) - **Recommended**
+- `--frames <int>`: Total number of frames to process (for irregular layouts)
+- `--output-spritesheet <file>`: Output as a single spritesheet file instead of individual frames
+- `--frame-width <int>`: Width of each frame in pixels (alternative to --grid)
+- `--frame-height <int>`: Height of each frame in pixels (alternative to --grid)
 - `--frames-per-row <int>`: Number of frames per row (auto-detected if not specified)
 - `--overwrite`: Overwrite existing output files
 
 **Examples:**
 ```bash
-# Process a 64x64 frame spritesheet
-bgremove spritesheet character.png frames/ --frame-width 64 --frame-height 64
+# Process using grid layout (recommended)
+bgremove spritesheet character.png frames/ --grid 5x2
+
+# Process only 6 frames from a 5x2 grid (irregular layout)
+bgremove spritesheet character.png frames/ --grid 5x2 --frames 6
+
+# Output as a single spritesheet file
+bgremove spritesheet character.png frames/ --grid 5x2 --frames 6 --output-spritesheet processed_character.png
+
+# Process using pixel dimensions
+bgremove spritesheet tiles.png tiles_output/ --frame-width 32 --frame-height 32
 
 # Process with specific layout (4 frames per row)
 bgremove spritesheet tiles.png tiles_output/ --frame-width 32 --frame-height 32 --frames-per-row 4
 
 # Overwrite existing files
-bgremove spritesheet animation.png anim_frames/ --frame-width 48 --frame-height 48 --overwrite
+bgremove spritesheet animation.png anim_frames/ --grid 4x3 --overwrite
 ```
 
 **Output:**
-- Each frame is saved as `frame_<row>_<col>_processed.png`
+- **Individual frames**: Each frame is saved as `frame_<row>_<col>_processed.png`
+- **Combined spritesheet**: Single file with all processed frames arranged in a grid
 - Files are numbered by row and column (e.g., `frame_000_000_processed.png`)
 - All frames have transparent backgrounds after processing
 

@@ -29,18 +29,26 @@ bgremove-api --host 0.0.0.0 --port 8000
 
 #### Character Spritesheets
 ```bash
-# Process a character animation spritesheet
-bgremove spritesheet character_walk.png character_frames/ \
-  --frame-width 64 --frame-height 64
+# Process a character animation spritesheet (recommended)
+bgremove spritesheet character_walk.png character_frames/ --grid 5x2
 
-# Process with specific layout (4 frames per row)
+# Process only 6 frames from a 5x2 grid (irregular layout)
+bgremove spritesheet character_walk.png character_frames/ --grid 5x2 --frames 6
+
+# Output as a single spritesheet file
+bgremove spritesheet character_walk.png character_frames/ --grid 5x2 --frames 6 --output-spritesheet processed_character.png
+
+# Process with pixel dimensions (alternative)
 bgremove spritesheet character_idle.png idle_frames/ \
   --frame-width 48 --frame-height 48 --frames-per-row 4
 ```
 
 #### Tile Sets
 ```bash
-# Process a tile set
+# Process a tile set (recommended)
+bgremove spritesheet tiles.png processed_tiles/ --grid 8x4
+
+# Process with pixel dimensions (alternative)
 bgremove spritesheet tiles.png processed_tiles/ \
   --frame-width 32 --frame-height 32 --frames-per-row 8
 ```

@@ -133,11 +133,14 @@ class _WatchHandler(FileSystemEventHandler):
 @app.command("spritesheet")
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.argument("output_dir", type=click.Path(file_okay=False, path_type=Path))
-@click.option("--frame-width", type=int, required=True, help="Width of each frame in pixels")
-@click.option("--frame-height", type=int, required=True, help="Height of each frame in pixels")
+@click.option("--frame-width", type=int, help="Width of each frame in pixels (alternative to --grid)")
+@click.option("--frame-height", type=int, help="Height of each frame in pixels (alternative to --grid)")
+@click.option("--grid", type=str, help="Grid layout as 'WIDTHxHEIGHT' (e.g., '5x2' for 5 frames per row, 2 rows)")
+@click.option("--frames", type=int, help="Total number of frames to process (for irregular layouts)")
 @click.option("--frames-per-row", type=int, help="Number of frames per row (auto-detect if not specified)")
+@click.option("--output-spritesheet", type=click.Path(dir_okay=False, path_type=Path), help="Output as a single spritesheet file instead of individual frames")
 @click.option("--overwrite", is_flag=True, help="Overwrite existing output files.")
-def spritesheet(input: Path, output_dir: Path, frame_width: int, frame_height: int, frames_per_row: Optional[int], overwrite: bool) -> None:
+def spritesheet(input: Path, output_dir: Path, frame_width: Optional[int], frame_height: Optional[int], grid: Optional[str], frames: Optional[int], frames_per_row: Optional[int], output_spritesheet: Optional[Path], overwrite: bool) -> None:
     """
     Process a spritesheet by splitting into frames and removing background from each.
     
@@ -146,6 +149,13 @@ def spritesheet(input: Path, output_dir: Path, frame_width: int, frame_height: i
     
     The spritesheet is automatically divided into a grid based on the frame dimensions,
     and each frame is processed individually through the background removal algorithm.
+    
+    Examples:
+        # Using grid layout (recommended for most spritesheets)
+        bgremove spritesheet character.png frames/ --grid 5x2
+        
+        # Using pixel dimensions
+        bgremove spritesheet tiles.png tiles/ --frame-width 32 --frame-height 32
     """
     if not input.exists():
         raise FileNotFoundError(input)
@@ -156,25 +166,57 @@ def spritesheet(input: Path, output_dir: Path, frame_width: int, frame_height: i
     with Image.open(input) as img:
         sheet_width, sheet_height = img.size
         
-        # Auto-detect frames per row if not specified
-        # This assumes frames are arranged in a regular grid
-        if frames_per_row is None:
-            frames_per_row = sheet_width // frame_width
+        # Parse grid layout if provided
+        if grid:
+            try:
+                frames_per_row, frames_per_col = map(int, grid.split('x'))
+                # Calculate frame dimensions from grid
+                frame_width = sheet_width // frames_per_row
+                frame_height = sheet_height // frames_per_col
+            except ValueError:
+                raise click.BadParameter("Grid must be in format 'WIDTHxHEIGHT' (e.g., '5x2')")
+        elif frame_width and frame_height:
+            # Use provided pixel dimensions
+            frames_per_row = frames_per_row or (sheet_width // frame_width)
+            frames_per_col = sheet_height // frame_height
+        else:
+            raise click.BadParameter(
+                "Either --grid (e.g., '5x2') or --frame-width and --frame-height must be provided"
+            )
         
-        # Calculate the grid dimensions
-        frames_per_col = sheet_height // frame_height
+        # Validate dimensions
+        if sheet_width % frames_per_row != 0:
+            raise click.BadParameter(
+                f"Spritesheet width ({sheet_width}) is not divisible by frames per row ({frames_per_row})"
+            )
+        if sheet_height % frames_per_col != 0:
+            raise click.BadParameter(
+                f"Spritesheet height ({sheet_height}) is not divisible by frames per column ({frames_per_col})"
+            )
+        
         total_frames = frames_per_row * frames_per_col
+        max_frames = frames or total_frames
         
         # Display processing information
         click.echo(f"Spritesheet: {sheet_width}x{sheet_height}")
         click.echo(f"Frame size: {frame_width}x{frame_height}")
-        click.echo(f"Frames per row: {frames_per_row}")
+        click.echo(f"Grid: {frames_per_row}x{frames_per_col}")
         click.echo(f"Total frames: {total_frames}")
+        if frames:
+            click.echo(f"Processing: {max_frames} frames")
         
         processed = 0
+        frame_count = 0
+        processed_frames = []  # Store processed frames for spritesheet output
+        
         # Process each frame in the grid
         for row in range(frames_per_col):
+            if frames and frame_count >= max_frames:
+                break
             for col in range(frames_per_row):
+                # Stop if we've processed the requested number of frames
+                if frames and frame_count >= max_frames:
+                    break
                 # Calculate the pixel coordinates for this frame
                 x = col * frame_width
                 y = row * frame_height
@@ -194,21 +236,65 @@ def spritesheet(input: Path, output_dir: Path, frame_width: int, frame_height: i
                     # Skip if output exists and overwrite is not enabled
                     if out_path.exists() and not overwrite:
                         click.echo(f"Skip exists: {out_path}")
+                        # Load existing processed frame for spritesheet
+                        if output_spritesheet:
+                            processed_frames.append(Image.open(out_path))
+                        frame_count += 1
                         continue
                     
                     # Process the frame through background removal
                     _process_one(frame_path, out_path, overwrite)
                     processed += 1
-                    click.echo(f"Processed frame {row*frames_per_row + col + 1}/{total_frames}: {out_path}")
+                    frame_count += 1
+                    click.echo(f"Processed frame {frame_count}/{max_frames}: {out_path}")
+                    
+                    # Load processed frame for spritesheet output
+                    if output_spritesheet:
+                        processed_frames.append(Image.open(out_path))
                     
                     # Clean up the temporary frame file
                     frame_path.unlink()
                     
                 except Exception as e:
-                    click.echo(f"Error processing frame {row*frames_per_row + col + 1}: {e}", err=True)
+                    click.echo(f"Error processing frame {frame_count + 1}: {e}", err=True)
                     # Ensure temporary file is cleaned up even on error
                     if frame_path.exists():
                         frame_path.unlink()
+                    frame_count += 1
+        
+        # Create combined spritesheet if requested
+        if output_spritesheet and processed_frames:
+            click.echo(f"Creating combined spritesheet: {output_spritesheet}")
+            
+            # Calculate the layout for the combined spritesheet
+            num_frames = len(processed_frames)
+            if frames_per_row:
+                cols = min(frames_per_row, num_frames)
+                rows = (num_frames + cols - 1) // cols  # Ceiling division
+            else:
+                # Auto-arrange in a roughly square layout
+                cols = int(num_frames ** 0.5)
+                if cols * cols < num_frames:
+                    cols += 1
+                rows = (num_frames + cols - 1) // cols
+            
+            # Create the combined spritesheet
+            combined_width = cols * frame_width
+            combined_height = rows * frame_height
+            combined_img = Image.new('RGBA', (combined_width, combined_height), (0, 0, 0, 0))
+            
+            # Place each processed frame in the combined image
+            for i, processed_frame in enumerate(processed_frames):
+                row = i // cols
+                col = i % cols
+                x = col * frame_width
+                y = row * frame_height
+                combined_img.paste(processed_frame, (x, y))
+            
+            # Save the combined spritesheet
+            combined_img.save(output_spritesheet)
+            click.echo(f"Saved combined spritesheet: {output_spritesheet}")
+            click.echo(f"Combined layout: {cols}x{rows} ({num_frames} frames)")
     
     click.echo(f"Done. Processed: {processed}/{total_frames} frames")
 
