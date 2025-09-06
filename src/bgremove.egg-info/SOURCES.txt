@@ -1,0 +1,12 @@
+README.md
+pyproject.toml
+src/bgremove/__init__.py
+src/bgremove/api.py
+src/bgremove/cli.py
+src/bgremove.egg-info/PKG-INFO
+src/bgremove.egg-info/SOURCES.txt
+src/bgremove.egg-info/dependency_links.txt
+src/bgremove.egg-info/entry_points.txt
+src/bgremove.egg-info/requires.txt
+src/bgremove.egg-info/top_level.txt
+tests/test_remove.py
