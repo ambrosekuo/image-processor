@@ -2,13 +2,54 @@ import axios from 'axios'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
+console.log('API_BASE_URL:', API_BASE_URL) // Debug log
+
 export const api = axios.create({
     baseURL: API_BASE_URL,
-    timeout: 30000, // 30 seconds for image processing
-    headers: {
-        'Content-Type': 'application/json',
-    },
+    timeout: 120000, // 2 minutes for spritesheet processing with all models
 })
+
+// Add request interceptor for debugging
+api.interceptors.request.use(
+    (config) => {
+        const timestamp = new Date().toISOString()
+        console.log(`🚀 [${timestamp}] API REQUEST:`, {
+            method: config.method?.toUpperCase(),
+            url: (config.baseURL || '') + (config.url || ''),
+            headers: config.headers,
+            data: config.data instanceof FormData ? 'FormData' : config.data
+        })
+        return config
+    },
+    (error) => {
+        console.error('❌ REQUEST ERROR:', error)
+        return Promise.reject(error)
+    }
+)
+
+// Add response interceptor for debugging
+api.interceptors.response.use(
+    (response) => {
+        const timestamp = new Date().toISOString()
+        console.log(`✅ [${timestamp}] API RESPONSE:`, {
+            status: response.status,
+            url: response.config.url,
+            dataSize: JSON.stringify(response.data).length,
+            data: response.data
+        })
+        return response
+    },
+    (error) => {
+        const timestamp = new Date().toISOString()
+        console.error(`❌ [${timestamp}] API ERROR:`, {
+            status: error.response?.status,
+            message: error.message,
+            url: error.config?.url,
+            data: error.response?.data
+        })
+        return Promise.reject(error)
+    }
+)
 
 // API endpoints
 export const endpoints = {
@@ -27,6 +68,35 @@ export interface RemoveResponse {
     success: boolean
     message?: string
     downloadUrl?: string
+}
+
+export interface ModelResult {
+    success: boolean
+    data?: string // base64 encoded image
+    size?: number
+    error?: string
+}
+
+export interface AllModelsResponse {
+    original_filename: string
+    original_size: number
+    models: {
+        [modelName: string]: ModelResult
+    }
+}
+
+export interface SpritesheetAllModelsResponse {
+    original_filename: string
+    original_size: number
+    spritesheet_size: string
+    grid: string
+    frames_processed: number
+    frame_size: string
+    models: {
+        [modelName: string]: ModelResult & {
+            frames_processed?: number
+        }
+    }
 }
 
 export interface SpritesheetConfig {
@@ -74,6 +144,39 @@ export const apiClient = {
         }
     },
 
+    // Process with all models
+    async removeBackgroundAllModels(file: File): Promise<AllModelsResponse> {
+        const formData = new FormData()
+        formData.append('file', file)
+
+        const response = await api.post('/remove-all-models', formData)
+
+        return response.data
+    },
+
+    // Process spritesheet with all models
+    async processSpritesheetAllModels(
+        file: File,
+        config: SpritesheetConfig
+    ): Promise<SpritesheetAllModelsResponse> {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('grid', config.grid)
+        if (config.frames) {
+            formData.append('frames', config.frames.toString())
+        }
+        if (config.frameWidth) {
+            formData.append('frameWidth', config.frameWidth.toString())
+        }
+        if (config.frameHeight) {
+            formData.append('frameHeight', config.frameHeight.toString())
+        }
+
+        const response = await api.post('/process/spritesheet-all-models', formData)
+
+        return response.data
+    },
+
     // Spritesheet processing
     async processSpritesheet(
         file: File,
@@ -92,11 +195,7 @@ export const apiClient = {
             formData.append('frameHeight', config.frameHeight.toString())
         }
 
-        const response = await api.post('/process/spritesheet', formData, {
-            headers: {
-                'Content-Type': 'multipart/form-data',
-            },
-        })
+        const response = await api.post('/process/spritesheet', formData)
 
         return response.data
     },

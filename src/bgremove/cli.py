@@ -11,7 +11,7 @@ from watchdog.observers import Observer
 from . import remove_bytes
 
 
-def _process_one(in_path: Path, out_path: Optional[Path] = None, overwrite: bool = False) -> Path:
+def _process_one(in_path: Path, out_path: Optional[Path] = None, overwrite: bool = False, model_name: str = "isnet-general-use") -> Path:
     """
     Process a single image file through background removal.
     
@@ -19,6 +19,7 @@ def _process_one(in_path: Path, out_path: Optional[Path] = None, overwrite: bool
         in_path: Path to the input image file
         out_path: Path for the output file (auto-generated if None)
         overwrite: Whether to overwrite existing output files
+        model_name: Name of the rembg model to use
         
     Returns:
         Path to the processed output file
@@ -38,9 +39,9 @@ def _process_one(in_path: Path, out_path: Optional[Path] = None, overwrite: bool
     if out_path.exists() and not overwrite:
         raise FileExistsError(f"Output exists (use --overwrite): {out_path}")
     
-    # Read image bytes and process through rembg
+    # Read image bytes and process through rembg with specified model
     img = in_path.read_bytes()
-    cut = remove_bytes(img)
+    cut = remove_bytes(img, model_name=model_name)
     out_path.write_bytes(cut)
     return out_path
 
