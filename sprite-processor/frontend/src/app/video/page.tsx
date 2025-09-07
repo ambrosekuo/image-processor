@@ -119,17 +119,17 @@ export default function VideoPage() {
                 frames: spritesheetConfig.frames
             })
 
-            // Convert base64 to blob
-            const binaryString = atob(response.spritesheet)
-            const bytes = new Uint8Array(binaryString.length)
-            for (let i = 0; i < binaryString.length; i++) {
-                bytes[i] = binaryString.charCodeAt(i)
+            if (response.success && response.downloadUrl) {
+                // The API client already provides the download URL
+                setSpritesheetUrl(response.downloadUrl)
+                
+                // Fetch the blob for download functionality
+                const blobResponse = await fetch(response.downloadUrl)
+                const blob = await blobResponse.blob()
+                setSpritesheetBlob(blob)
+            } else {
+                throw new Error(response.message || 'Spritesheet conversion failed')
             }
-            const blob = new Blob([bytes], { type: 'image/png' })
-
-            setSpritesheetBlob(blob)
-            const url = URL.createObjectURL(blob)
-            setSpritesheetUrl(url)
         } catch (err) {
             setError(`Spritesheet conversion failed: ${err}`)
         } finally {

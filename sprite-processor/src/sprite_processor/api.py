@@ -6,7 +6,7 @@ import logging
 import time
 import base64
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, Form, Request
+from fastapi import FastAPI, File, HTTPException, UploadFile, Form, Request, BackgroundTasks
 from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -605,6 +605,7 @@ async def process_spritesheet(
 
 @api.post("/process/video-to-gif")
 async def process_video_to_gif(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     fps: int = Form(10),
     duration: Optional[float] = Form(None),
@@ -617,6 +618,30 @@ async def process_video_to_gif(
     logger.info(f"   Settings: {fps} FPS, {duration}s duration, {max_width}x{max_height} max size")
     
     try:
+        # Check if the uploaded file is already a GIF
+        file_extension = Path(file.filename or "").suffix.lower()
+        is_gif = file_extension == ".gif" or file.content_type == "image/gif"
+        
+        if is_gif:
+            logger.info(f"   Input is already a GIF, returning as-is")
+            # For GIF files, just return the file as-is
+            content = await file.read()
+            
+            # Create a temporary file for the response
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.gif') as temp_file:
+                temp_file.write(content)
+                temp_file_path = Path(temp_file.name)
+            
+            # Schedule cleanup of temp file after response is sent
+            background_tasks.add_task(lambda: temp_file_path.unlink() if temp_file_path.exists() else None)
+            
+            return FileResponse(
+                path=temp_file_path,
+                media_type="image/gif",
+                filename=f"{Path(file.filename).stem}.gif"
+            )
+        
+        # For actual video files, proceed with conversion
         # Save uploaded file temporarily
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as temp_file:
             content = await file.read()
@@ -639,22 +664,19 @@ async def process_video_to_gif(
             max_height=max_height
         )
         
-        # Read the result file
-        with open(result_path, "rb") as f:
-            gif_content = f.read()
+        logger.info(f"✅ VIDEO TO GIF COMPLETED: {result_path.stat().st_size} bytes")
         
-        # Clean up temporary files
+        # Clean up input file
         temp_file_path.unlink()
-        result_path.unlink()
         
-        logger.info(f"✅ VIDEO TO GIF COMPLETED: {len(gif_content)} bytes")
+        # Schedule cleanup of result file after response is sent
+        background_tasks.add_task(lambda: result_path.unlink() if result_path.exists() else None)
         
-        return Response(
-            content=gif_content,
+        # Use FileResponse to avoid header conflicts
+        return FileResponse(
+            path=result_path,
             media_type="image/gif",
-            headers={
-                "Content-Disposition": f"attachment; filename={Path(file.filename).stem}.gif"
-            }
+            filename=f"{Path(file.filename).stem}.gif"
         )
         
     except Exception as e:
