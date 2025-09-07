@@ -1,3 +1,0 @@
-[console_scripts]
-sprite-processor = sprite_processor.cli:app
-sprite-processor-api = sprite_processor.api:serve
