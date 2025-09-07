@@ -1,3 +1,0 @@
-[console_scripts]
-bgremove = bgremove.cli:app
-bgremove-api = bgremove.api:serve

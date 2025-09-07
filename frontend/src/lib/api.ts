@@ -109,9 +109,40 @@ export interface SpritesheetConfig {
 export interface SpritesheetResponse {
     success: boolean
     message?: string
-    frames?: string[]
+    downloadUrl?: string
     spritesheetUrl?: string
-    config: SpritesheetConfig
+    config?: any
+}
+
+export interface VideoAnalysisResponse {
+    filename: string
+    analysis: {
+        duration: number
+        fps: number
+        size: [number, number]
+        total_frames: number
+        recommended_fps: number
+        recommended_duration: number
+        recommended_frames: number
+        file_size: number
+    }
+}
+
+export interface VideoToGifConfig {
+    fps: number
+    duration?: number
+    maxWidth: number
+    maxHeight: number
+}
+
+export interface VideoPipelineConfig {
+    fps: number
+    duration?: number
+    grid: string
+    frames?: number
+    model: string
+    allModels: boolean
+    keepIntermediates: boolean
 }
 
 // API functions
@@ -196,7 +227,96 @@ export const apiClient = {
         }
 
         const response = await api.post('/process/spritesheet', formData)
+        const data = response.data
 
+        // Convert base64 spritesheet to download URL
+        if (data.success && data.spritesheet) {
+            const blob = new Blob([Uint8Array.from(atob(data.spritesheet), c => c.charCodeAt(0))], {
+                type: data.spritesheet_mime || 'image/png'
+            })
+            const downloadUrl = URL.createObjectURL(blob)
+
+            return {
+                success: true,
+                downloadUrl,
+                config: data.config,
+                spritesheetUrl: downloadUrl
+            }
+        }
+
+        return {
+            success: false,
+            message: data.message || 'Processing failed'
+        }
+    },
+
+    // GIF to spritesheet processing
+    async processGifToSpritesheet(
+        file: File,
+        config: SpritesheetConfig
+    ): Promise<SpritesheetResponse> {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('grid', config.grid)
+        if (config.frames) {
+            formData.append('frames', config.frames.toString())
+        }
+        if (config.frameWidth) {
+            formData.append('frameWidth', config.frameWidth.toString())
+        }
+        if (config.frameHeight) {
+            formData.append('frameHeight', config.frameHeight.toString())
+        }
+
+        const response = await api.post('/process/gif-to-spritesheet', formData)
+
+        return response.data
+    },
+
+    // Video analysis
+    async analyzeVideo(file: File): Promise<VideoAnalysisResponse> {
+        const formData = new FormData()
+        formData.append('file', file)
+
+        const response = await api.post('/analyze/video', formData)
+        return response.data
+    },
+
+    // Video to GIF conversion
+    async videoToGif(file: File, config: VideoToGifConfig): Promise<Blob> {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('fps', config.fps.toString())
+        if (config.duration) {
+            formData.append('duration', config.duration.toString())
+        }
+        formData.append('max_width', config.maxWidth.toString())
+        formData.append('max_height', config.maxHeight.toString())
+
+        const response = await api.post('/process/video-to-gif', formData, {
+            responseType: 'blob'
+        })
+
+        return response.data
+    },
+
+    // Video pipeline processing
+    async processVideoPipeline(file: File, config: VideoPipelineConfig): Promise<any> {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('fps', config.fps.toString())
+        if (config.duration) {
+            formData.append('duration', config.duration.toString())
+        }
+        formData.append('grid', config.grid)
+        if (config.frames) {
+            formData.append('frames', config.frames.toString())
+        }
+        formData.append('model', config.model)
+        formData.append('all_models', config.allModels.toString())
+        formData.append('keep_intermediates', config.keepIntermediates.toString())
+
+        const response = await api.post('/process/video-pipeline', formData)
         return response.data
     },
 }

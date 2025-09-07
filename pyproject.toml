@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "bgremove"
+name = "sprite-processor"
 version = "0.1.0"
-description = "Local background removal (rembg wrapper) with CLI and FastAPI."
+description = "Complete sprite processing pipeline: video to GIF, spritesheet extraction, and background removal."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "You" }]
@@ -14,7 +14,11 @@ dependencies = [
   "Pillow>=10.4.0",
   "fastapi>=0.115.0",
   "uvicorn>=0.30.0",
-  "watchdog>=4.0.0"  # watch-mode for folders
+  "watchdog>=4.0.0",  # watch-mode for folders
+  "moviepy>=1.0.3",  # video processing
+  "opencv-python>=4.8.0", # computer vision
+  "imageio[ffmpeg]>=2.31.0", # video I/O
+  "python-multipart>=0.0.6", # file uploads
 ]
 
 [project.optional-dependencies]
@@ -28,8 +32,8 @@ dev = [
 ]
 
 [project.scripts]
-bgremove = "bgremove.cli:app"         # CLI entry
-bgremove-api = "bgremove.api:serve"   # API entry
+sprite-processor = "sprite_processor.cli:app"         # CLI entry
+sprite-processor-api = "sprite_processor.api:serve"   # API entry
 
 [tool.isort]
 profile = "black"

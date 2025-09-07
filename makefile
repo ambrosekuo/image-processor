@@ -15,10 +15,10 @@ dev:
 	. .venv/bin/activate; pip install -e ".[dev]"
 
 run:
-	. .venv/bin/activate; bgremove --help
+	. .venv/bin/activate; sprite-processor --help
 
 api:
-	. .venv/bin/activate; bgremove-api --host 0.0.0.0 --port 8000
+	. .venv/bin/activate; sprite-processor-api --host 0.0.0.0 --port 8000
 
 fmt:
 	. .venv/bin/activate; black src tests
@@ -34,4 +34,4 @@ precommit:
 	pre-commit run --all-files
 
 docker:
-	docker build -t bgremove:local .
+	docker build -t sprite-processor:local .
