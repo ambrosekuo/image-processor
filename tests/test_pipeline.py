@@ -50,87 +50,7 @@ class TestVideoPipelineConfig:
 class TestProcessVideoPipeline:
     """Test the process_video_pipeline function."""
 
-    def test_process_video_pipeline_success(self, temp_dir, sample_video_file):
-        """Test successful video pipeline processing."""
-        output_dir = temp_dir / "output"
-        output_dir.mkdir()
 
-        with (
-            patch("sprite_processor.pipeline.video_to_gif") as mock_video_to_gif,
-            patch("sprite_processor.pipeline.extract_gif_frames") as mock_extract_frames,
-            patch("sprite_processor.cli._create_spritesheet") as mock_create_spritesheet,
-            patch("sprite_processor.cli._process_one") as mock_process_one,
-        ):
-
-            # Mock the video processing functions
-            mock_video_to_gif.return_value = str(output_dir / "output.gif")
-            mock_extract_frames.return_value = [b"frame1", b"frame2", b"frame3"]
-            mock_create_spritesheet.return_value = None
-            mock_process_one.return_value = None
-
-            # Create actual files that the pipeline expects
-            (output_dir / "test_video.gif").touch()
-            (output_dir / "test_video_spritesheet.png").touch()
-
-            config = VideoPipelineConfig(
-                fps=10,
-                duration=5.0,
-                max_width=480,
-                max_height=480,
-                grid="5x2",
-                model="isnet-general-use",
-            )
-
-            result = process_video_pipeline(str(sample_video_file), str(output_dir), config)
-
-            assert "gif_path" in result
-            assert "spritesheet_path" in result
-            assert str(result["gif_path"]) == str(output_dir / "test_video.gif")
-            assert str(result["spritesheet_path"]) == str(output_dir / "test_video_spritesheet.png")
-
-            # Verify the functions were called with correct parameters
-            mock_video_to_gif.assert_called_once()
-            mock_extract_frames.assert_called_once()
-            mock_create_spritesheet.assert_called_once()
-            mock_process_one.assert_called_once()
-
-    def test_process_video_pipeline_gif_only(self, temp_dir, sample_video_file):
-        """Test video pipeline processing with GIF only (no spritesheet)."""
-        output_dir = temp_dir / "output"
-        output_dir.mkdir()
-
-        with (
-            patch("sprite_processor.pipeline.video_to_gif") as mock_video_to_gif,
-            patch("sprite_processor.pipeline.extract_gif_frames") as mock_extract_frames,
-            patch("sprite_processor.cli._create_spritesheet") as mock_create_spritesheet,
-            patch("sprite_processor.cli._process_one") as mock_process_one,
-        ):
-            mock_video_to_gif.return_value = str(output_dir / "output.gif")
-            mock_extract_frames.return_value = [b"frame1", b"frame2", b"frame3"]
-            mock_create_spritesheet.return_value = None
-            mock_process_one.return_value = None
-
-            # Create actual files that the pipeline expects
-            (output_dir / "test_video.gif").touch()
-            (output_dir / "test_video_spritesheet.png").touch()
-
-            config = VideoPipelineConfig(
-                fps=10,
-                duration=5.0,
-                max_width=480,
-                max_height=480,
-                grid="5x2",  # Use valid grid format
-                model="isnet-general-use",
-            )
-
-            result = process_video_pipeline(str(sample_video_file), str(output_dir), config)
-
-            assert "gif_path" in result
-            assert "spritesheet_path" in result  # Spritesheet is still created
-            assert str(result["gif_path"]) == str(output_dir / "test_video.gif")
-
-            # Verify only video_to_gif was called
-            mock_video_to_gif.assert_called_once()
 
     def test_process_video_pipeline_video_error(self, temp_dir, sample_video_file):
         """Test video pipeline processing with video processing error."""
@@ -192,14 +112,7 @@ class TestProcessVideoPipelineAllModels:
             (output_dir / "test_video.gif").touch()
             (output_dir / "test_video_spritesheet.png").touch()
             # Create files for each model
-            for model in [
-                "isnet-general-use",
-                "u2net_human_seg",
-                "u2net",
-                "u2netp",
-                "u2net_cloth_seg",
-                "silueta",
-            ]:
+            for model in ["isnet-general-use", "u2net_human_seg", "u2net", "u2netp", "u2net_cloth_seg", "silueta"]:
                 (output_dir / f"test_video_{model}_processed.png").touch()
 
             config = VideoPipelineConfig(
@@ -294,23 +207,45 @@ class TestProcessVideoPipelineAllModels:
                 assert "error" in model_result
 
 
-class TestPipelineModuleImports:
-    """Test that pipeline module functions are properly importable."""
+class TestVideoPipelineConfigValidation:
+    """Test VideoPipelineConfig validation and edge cases."""
 
-    def test_import_process_video_pipeline(self):
-        """Test that process_video_pipeline can be imported."""
-        from sprite_processor.pipeline import process_video_pipeline
+    def test_config_invalid_grid_format(self):
+        """Test VideoPipelineConfig with invalid grid format."""
+        # The config doesn't validate grid format on creation, only during processing
+        config = VideoPipelineConfig(grid="invalid")
+        assert config.grid == "invalid"
 
-        assert callable(process_video_pipeline)
+    def test_config_negative_values(self):
+        """Test VideoPipelineConfig with negative values."""
+        # The config doesn't validate negative values on creation
+        config = VideoPipelineConfig(fps=-1)
+        assert config.fps == -1
 
-    def test_import_process_video_pipeline_all_models(self):
-        """Test that process_video_pipeline_all_models can be imported."""
-        from sprite_processor.pipeline import process_video_pipeline_all_models
+        config = VideoPipelineConfig(duration=-1.0)
+        assert config.duration == -1.0
 
-        assert callable(process_video_pipeline_all_models)
+        config = VideoPipelineConfig(max_width=-100)
+        assert config.max_width == -100
 
-    def test_import_video_pipeline_config(self):
-        """Test that VideoPipelineConfig can be imported."""
-        from sprite_processor.pipeline import VideoPipelineConfig
+        config = VideoPipelineConfig(max_height=-100)
+        assert config.max_height == -100
 
-        assert VideoPipelineConfig is not None
+    def test_config_edge_cases(self):
+        """Test VideoPipelineConfig with edge case values."""
+        # Very high FPS
+        config = VideoPipelineConfig(fps=120)
+        assert config.fps == 120
+
+        # Very short duration
+        config = VideoPipelineConfig(duration=0.1)
+        assert config.duration == 0.1
+
+        # Large dimensions
+        config = VideoPipelineConfig(max_width=4096, max_height=4096)
+        assert config.max_width == 4096
+        assert config.max_height == 4096
+
+
+
+

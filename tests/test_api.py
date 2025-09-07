@@ -298,3 +298,84 @@ class TestAPIErrorHandling:
 
             assert response.status_code == 500
             assert "Processing failed" in response.json()["detail"]
+
+
+class TestAnalyzeSpritesheetEndpoint:
+    """Test the analyze spritesheet endpoint."""
+
+    def test_analyze_spritesheet_endpoint_success(self, api_client, sample_image_bytes):
+        """Test successful spritesheet analysis."""
+        with patch("sprite_processor.api.Image") as mock_image:
+            # Mock PIL Image
+            mock_img = MagicMock()
+            mock_img.size = (100, 50)  # 100x50 spritesheet
+            mock_image.open.return_value = mock_img
+
+            files = {"file": ("spritesheet.png", sample_image_bytes, "image/png")}
+
+            response = api_client.post("/analyze-spritesheet", files=files)
+
+            assert response.status_code == 200
+            result = response.json()
+            assert "spritesheet_size" in result
+            assert "suggested_layouts" in result
+            assert "width_divisors" in result
+            assert "height_divisors" in result
+
+    def test_analyze_spritesheet_endpoint_no_file(self, api_client):
+        """Test analyze spritesheet endpoint without file."""
+        response = api_client.post("/analyze-spritesheet")
+        assert response.status_code == 422
+
+    def test_analyze_spritesheet_endpoint_invalid_file(self, api_client):
+        """Test analyze spritesheet endpoint with invalid file."""
+        files = {"file": ("test.txt", b"not an image", "text/plain")}
+
+        response = api_client.post("/analyze-spritesheet", files=files)
+        assert response.status_code == 500  # API returns 500 for invalid images
+
+
+class TestGifToSpritesheetEndpoint:
+    """Test the GIF to spritesheet endpoint."""
+
+    def test_gif_to_spritesheet_endpoint_success(self, api_client, sample_gif):
+        """Test successful GIF to spritesheet conversion."""
+        with (
+            patch("sprite_processor.video.extract_gif_frames") as mock_extract_frames,
+            patch("sprite_processor.cli._create_spritesheet") as mock_create_spritesheet,
+            patch("sprite_processor.cli._process_one") as mock_process_one,
+        ):
+            # Mock the GIF frame extraction
+            mock_frames = [MagicMock() for _ in range(4)]
+            for frame in mock_frames:
+                frame.size = (32, 32)
+            mock_extract_frames.return_value = mock_frames
+
+            # Mock the spritesheet creation
+            mock_create_spritesheet.return_value = None
+
+            # Mock the background removal
+            mock_process_one.return_value = None
+
+            files = {"file": ("animation.gif", sample_gif, "image/gif")}
+            data = {"grid": "2x2", "frames": "4"}
+
+            response = api_client.post("/process/gif-to-spritesheet", files=files, data=data)
+
+            assert response.status_code == 200
+            result = response.json()
+            assert "success" in result
+
+    def test_gif_to_spritesheet_endpoint_invalid_grid(self, api_client, sample_gif):
+        """Test GIF to spritesheet endpoint with invalid grid format."""
+        files = {"file": ("animation.gif", sample_gif, "image/gif")}
+        data = {"grid": "invalid"}
+
+        response = api_client.post("/process/gif-to-spritesheet", files=files, data=data)
+        assert response.status_code == 400
+        assert "Grid must be in format" in response.json()["detail"]
+
+    def test_gif_to_spritesheet_endpoint_no_file(self, api_client):
+        """Test GIF to spritesheet endpoint without file."""
+        response = api_client.post("/process/gif-to-spritesheet")
+        assert response.status_code == 422

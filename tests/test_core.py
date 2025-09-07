@@ -98,36 +98,42 @@ class TestRemoveFile:
             with pytest.raises(Exception):
                 remove_file(str(test_file))
 
+    def test_remove_bytes_invalid_model(self, sample_image_bytes, mock_rembg_session):
+        """Test remove_bytes with invalid model name."""
+        with patch("sprite_processor.new_session") as mock_session:
+            mock_session.side_effect = Exception("Invalid model name")
+            
+            with pytest.raises(Exception, match="Invalid model name"):
+                remove_bytes(sample_image_bytes, model_name="invalid-model")
 
-class TestModuleImports:
-    """Test that all expected functions are importable."""
+    def test_remove_file_invalid_model(self, temp_dir, sample_image_bytes, mock_rembg_session):
+        """Test remove_file with invalid model name."""
+        test_file = temp_dir / "test_image.png"
+        test_file.write_bytes(sample_image_bytes)
 
-    def test_import_remove_bytes(self):
-        """Test that remove_bytes can be imported."""
-        from sprite_processor import remove_bytes
+        with patch("sprite_processor.new_session") as mock_session:
+            mock_session.side_effect = Exception("Invalid model name")
+            
+            with pytest.raises(Exception, match="Invalid model name"):
+                remove_file(str(test_file), model_name="invalid-model")
 
-        assert callable(remove_bytes)
+    def test_remove_bytes_unsupported_format(self, mock_rembg_session):
+        """Test remove_bytes with unsupported image format."""
+        # Create a fake BMP file (unsupported format)
+        bmp_data = b"BM\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        
+        with patch("sprite_processor.new_session", return_value=mock_rembg_session("isnet-general-use")):
+            with pytest.raises(Exception):
+                remove_bytes(bmp_data)
 
-    def test_import_remove_file(self):
-        """Test that remove_file can be imported."""
-        from sprite_processor import remove_file
+    def test_remove_file_unsupported_format(self, temp_dir, mock_rembg_session):
+        """Test remove_file with unsupported image format."""
+        # Create a fake BMP file
+        test_file = temp_dir / "test.bmp"
+        test_file.write_bytes(b"BM\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
 
-        assert callable(remove_file)
+        with patch("sprite_processor.new_session", return_value=mock_rembg_session("isnet-general-use")):
+            with pytest.raises(Exception):
+                remove_file(str(test_file))
 
-    def test_import_video_functions(self):
-        """Test that video functions can be imported."""
-        from sprite_processor import analyze_video, video_to_gif, video_to_spritesheet
 
-        assert callable(video_to_gif)
-        assert callable(video_to_spritesheet)
-        assert callable(analyze_video)
-
-    def test_import_pipeline_functions(self):
-        """Test that pipeline functions can be imported."""
-        from sprite_processor import (
-            process_video_pipeline,
-            process_video_pipeline_all_models,
-        )
-
-        assert callable(process_video_pipeline)
-        assert callable(process_video_pipeline_all_models)
