@@ -4,7 +4,7 @@ import { Download, CheckCircle, XCircle, Loader2 } from 'lucide-react'
 
 interface ProcessingStatusProps {
     isProcessing: boolean
-    result: { downloadUrl?: string; error?: string } | null
+    result: { downloadUrl?: string; spritesheetUrl?: string; error?: string } | null
     originalFile: File | null
 }
 
@@ -57,7 +57,8 @@ export function ProcessingStatus({ isProcessing, result, originalFile }: Process
         )
     }
 
-    if (result?.downloadUrl) {
+    if (result?.downloadUrl || result?.spritesheetUrl) {
+        const downloadUrl = result.downloadUrl || result.spritesheetUrl
         return (
             <div className="bg-green-50 rounded-lg p-8 text-center">
                 <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -65,21 +66,32 @@ export function ProcessingStatus({ isProcessing, result, originalFile }: Process
                 </div>
                 <h3 className="text-lg font-semibold text-green-900 mb-2">Processing Complete!</h3>
                 <p className="text-green-700 mb-6">
-                    Your image has been processed successfully. The background has been removed.
+                    Your spritesheet has been processed successfully. The background has been removed from all frames.
                 </p>
+
+                {/* Show spritesheet preview if available */}
+                {result.spritesheetUrl && (
+                    <div className="mb-6">
+                        <img
+                            src={result.spritesheetUrl}
+                            alt="Processed spritesheet"
+                            className="max-w-full h-48 object-contain mx-auto rounded-lg border"
+                        />
+                    </div>
+                )}
 
                 <div className="space-y-4">
                     <a
-                        href={result.downloadUrl}
-                        download={`${originalFile?.name?.split('.')[0] || 'processed'}_no_bg.png`}
+                        href={downloadUrl}
+                        download={`${originalFile?.name?.split('.')[0] || 'processed'}_spritesheet.png`}
                         className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
                     >
                         <Download className="w-4 h-4" />
-                        Download Processed Image
+                        Download Processed Spritesheet
                     </a>
 
                     <div className="text-sm text-green-600">
-                        <p>✓ Background removed</p>
+                        <p>✓ Background removed from all frames</p>
                         <p>✓ Transparent PNG format</p>
                         <p>✓ Ready for use in your projects</p>
                     </div>

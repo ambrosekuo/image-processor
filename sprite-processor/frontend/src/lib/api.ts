@@ -109,9 +109,9 @@ export interface SpritesheetConfig {
 export interface SpritesheetResponse {
     success: boolean
     message?: string
-    frames?: string[]
+    downloadUrl?: string
     spritesheetUrl?: string
-    config: SpritesheetConfig
+    config?: any
 }
 
 export interface VideoAnalysisResponse {
@@ -227,8 +227,27 @@ export const apiClient = {
         }
 
         const response = await api.post('/process/spritesheet', formData)
+        const data = response.data
 
-        return response.data
+        // Convert base64 spritesheet to download URL
+        if (data.success && data.spritesheet) {
+            const blob = new Blob([Uint8Array.from(atob(data.spritesheet), c => c.charCodeAt(0))], {
+                type: data.spritesheet_mime || 'image/png'
+            })
+            const downloadUrl = URL.createObjectURL(blob)
+
+            return {
+                success: true,
+                downloadUrl,
+                config: data.config,
+                spritesheetUrl: downloadUrl
+            }
+        }
+
+        return {
+            success: false,
+            message: data.message || 'Processing failed'
+        }
     },
 
     // GIF to spritesheet processing

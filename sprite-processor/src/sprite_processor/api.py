@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List,Tuple
 import tempfile
 import shutil
 import logging
@@ -15,7 +15,11 @@ from . import remove_bytes
 from .video import video_to_gif, analyze_video
 from .pipeline import process_video_pipeline, process_video_pipeline_all_models, VideoPipelineConfig
 from .cli import _process_one
-
+from PIL import Image, ImageSequence
+import asyncio
+import base64
+import math
+import os
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -376,161 +380,227 @@ async def process_spritesheet_all_models(
         except:
             logger.warning("   ⚠️ Failed to clean up temporary file")
 
+def _ensure_rgba(im: Image.Image) -> Image.Image:
+    """
+    Convert paletted/GIF frames into RGBA properly preserving transparency.
+    """
+    if im.mode == "RGBA":
+        return im
+    if im.mode in ("P", "L", "RGB", "LA"):
+        # Use a transparent background if possible
+        bg = Image.new("RGBA", im.size, (0, 0, 0, 0))
+        bg.paste(im, (0, 0))
+        return bg
+    return im.convert("RGBA")
+
+def _parse_grid(grid: str) -> Tuple[int, int]:
+    if grid.lower() == "auto":
+        return (0, 0)  # sentinel for auto layout
+    if "x" not in grid:
+        raise HTTPException(status_code=400, detail="Grid must be 'colsxrows' (e.g., '5x2') or 'auto'.")
+    cols, rows = map(int, grid.lower().split("x"))
+    if cols <= 0 or rows <= 0:
+        raise HTTPException(status_code=400, detail="Grid numbers must be positive integers.")
+    return cols, rows
+
+def _auto_grid(num_frames: int) -> Tuple[int, int]:
+    """
+    Choose a near-square grid for the given number of frames.
+    """
+    cols = int(math.ceil(math.sqrt(num_frames)))
+    rows = int(math.ceil(num_frames / cols))
+    return cols, rows
+
+async def _maybe_process_frame(frame_path: Path, out_path: Path, model_name: str = "isnet-general-use") -> Image.Image:
+    """
+    Try processing a single frame with _process_one; on failure, return the original.
+    """
+    try:
+        processed_path = await asyncio.get_running_loop().run_in_executor(
+            None, _process_one, frame_path, out_path, False, model_name
+        )
+        with Image.open(processed_path) as im:
+            return _ensure_rgba(im.copy())
+    except Exception:
+        with Image.open(frame_path) as im:
+            return _ensure_rgba(im.copy())
 
 @api.post("/process/spritesheet")
 async def process_spritesheet(
     file: UploadFile = File(...),
-    grid: str = Form(...),
+    grid: str = Form("auto"),  # "auto" or "COLSxROWS" when input is an existing sheet
     frames: Optional[int] = Form(None),
     frameWidth: Optional[int] = Form(None),
-    frameHeight: Optional[int] = Form(None)
+    frameHeight: Optional[int] = Form(None),
+    model: str = Form("isnet-general-use"),
 ):
-    """Process a spritesheet with background removal"""
+    """
+    Upload a GIF or an image spritesheet.
+    - If GIF: extract frames, process them, and repack into a PNG spritesheet.
+    - If spritesheet: slice by grid (or auto-slice based on provided frameWidth/Height), process, and repack.
+    Returns base64-encoded PNG spritesheet and metadata.
+    """
     if not file:
         raise HTTPException(status_code=400, detail="No file uploaded")
-    
+
+    tmp_file_path: Optional[str] = None
     try:
-        # Parse grid (e.g., "5x2")
-        if 'x' not in grid:
-            raise HTTPException(status_code=400, detail="Grid must be in format 'colsxrows' (e.g., '5x2')")
-        
-        cols, rows = map(int, grid.split('x'))
-        
-        # Save uploaded file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
+        # Save the upload
+        suffix = Path(file.filename or "").suffix.lower() or ".bin"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             content = await file.read()
-            tmp_file.write(content)
-            tmp_file_path = tmp_file.name
-        
-        # Create temporary output directory
+            if not content:
+                raise HTTPException(status_code=400, detail="Uploaded file is empty")
+            tmp.write(content)
+            tmp_file_path = tmp.name
+
+        # Workspace
         with tempfile.TemporaryDirectory() as temp_dir:
-            output_dir = Path(temp_dir) / "frames"
-            output_dir.mkdir()
-            
-            # Process spritesheet using existing CLI logic
-            from PIL import Image
-            
-            # Load spritesheet
-            spritesheet = Image.open(tmp_file_path)
-            spritesheet_width, spritesheet_height = spritesheet.size
-            
-            # Calculate frame dimensions
-            if frameWidth and frameHeight:
-                frame_width = frameWidth
-                frame_height = frameHeight
+            temp_dir_path = Path(temp_dir)
+            frames_dir = temp_dir_path / "frames"
+            frames_dir.mkdir()
+
+            input_is_gif = (file.content_type == "image/gif") or suffix == ".gif"
+
+            extracted_frames: List[Image.Image] = []
+            fw: Optional[int] = None
+            fh: Optional[int] = None
+
+            if input_is_gif:
+                # --------- GIF branch: decompose frames ----------
+                with Image.open(tmp_file_path) as gif:
+                    # Some GIFs have varying disposal methods; convert each to RGBA canvas
+                    for idx, frame in enumerate(ImageSequence.Iterator(gif)):
+                        rgba = _ensure_rgba(frame.convert("RGBA"))
+                        extracted_frames.append(rgba.copy())
+                        if frames and len(extracted_frames) >= frames:
+                            break
+                if not extracted_frames:
+                    raise HTTPException(status_code=400, detail="GIF has no frames")
+                fw, fh = extracted_frames[0].size
+
             else:
-                # Use exact division to avoid rounding issues
-                frame_width = spritesheet_width // cols
-                frame_height = spritesheet_height // rows
-            
-            # Calculate actual frames that fit
-            frames_per_row = spritesheet_width // frame_width
-            frames_per_col = spritesheet_height // frame_height
-            total_frames = frames_per_row * frames_per_col
-            
-            # Validate that we can fit the requested grid
-            if frames_per_row < cols:
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"Spritesheet width ({spritesheet_width}) cannot fit {cols} frames of width {frame_width}. Maximum frames per row: {frames_per_row}"
-                )
-            if frames_per_col < rows:
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"Spritesheet height ({spritesheet_height}) cannot fit {rows} frames of height {frame_height}. Maximum frames per column: {frames_per_col}"
-                )
-            max_frames = frames or total_frames
-            
-            processed_frames = []
-            frame_count = 0
-            
-            # Process frames
-            for row in range(frames_per_col):
-                for col in range(frames_per_row):
-                    if frame_count >= max_frames:
-                        break
-                    
-                    # Calculate crop coordinates
-                    left = col * frame_width
-                    top = row * frame_height
-                    right = left + frame_width
-                    bottom = top + frame_height
-                    
-                    # Crop frame
-                    frame = spritesheet.crop((left, top, right, bottom))
-                    
-                    # Save temporary frame
-                    frame_path = output_dir / f"frame_{row:03d}_{col:03d}.png"
-                    frame.save(frame_path)
-                    
-                    # Process frame with default model
-                    try:
-                        processed_path = _process_one(frame_path, output_dir / f"frame_{row:03d}_{col:03d}_processed.png")
-                        processed_frame = Image.open(processed_path)
-                        processed_frames.append(processed_frame)
-                    except Exception as e:
-                        print(f"Error processing frame {frame_count + 1}: {e}")
-                        # Use original frame if processing fails
-                        processed_frames.append(frame)
-                    
-                    frame_count += 1
-                
-                if frame_count >= max_frames:
+                # --------- Spritesheet branch: slice by grid or frame size ----------
+                cols, rows = _parse_grid(grid)
+                with Image.open(tmp_file_path) as sheet:
+                    sheet = _ensure_rgba(sheet.convert("RGBA"))
+                    sw, sh = sheet.size
+
+                    # Determine frame size
+                    if frameWidth and frameHeight:
+                        fw, fh = int(frameWidth), int(frameHeight)
+                        if fw <= 0 or fh <= 0:
+                            raise HTTPException(status_code=400, detail="frameWidth and frameHeight must be > 0")
+                        frames_per_row = sw // fw
+                        frames_per_col = sh // fh
+                    else:
+                        # If explicit grid provided, compute from it; if auto, try square-ish frame guess
+                        if cols and rows:
+                            fw = sw // cols
+                            fh = sh // rows
+                            frames_per_row = cols
+                            frames_per_col = rows
+                        else:
+                            # Auto: try to infer by making square frames (fallback to 1x1)
+                            # Here, we just treat the full image as a single frame if no size given.
+                            fw, fh = sw, sh
+                            frames_per_row = 1
+                            frames_per_col = 1
+
+                    # Validate and extract
+                    if fw <= 0 or fh <= 0:
+                        raise HTTPException(status_code=400, detail="Computed frame size is invalid.")
+                    frames_per_row = sw // fw
+                    frames_per_col = sh // fh
+                    total_possible = frames_per_row * frames_per_col
+                    max_take = min(frames or total_possible, total_possible)
+
+                    count = 0
+                    for r in range(frames_per_col):
+                        for c in range(frames_per_row):
+                            if count >= max_take:
+                                break
+                            left = c * fw
+                            top = r * fh
+                            right = left + fw
+                            bottom = top + fh
+                            cropped = sheet.crop((left, top, right, bottom))
+                            extracted_frames.append(_ensure_rgba(cropped))
+                            count += 1
+                        if count >= max_take:
+                            break
+
+                if not extracted_frames:
+                    raise HTTPException(status_code=500, detail="No frames could be extracted from the spritesheet.")
+
+            # ---- Process each frame (background removal, etc.) ----
+            processed_frames: List[Image.Image] = []
+            for i, img in enumerate(extracted_frames):
+                # Save to disk for your _process_one()
+                in_frame_path = frames_dir / f"in_{i:05d}.png"
+                out_frame_path = frames_dir / f"out_{i:05d}.png"
+                img.save(in_frame_path)
+                processed = await _maybe_process_frame(in_frame_path, out_frame_path, model)
+                processed_frames.append(processed)
+
+            # ---- Determine final grid ----
+            if grid.lower() == "auto" or input_is_gif:
+                cols, rows = _auto_grid(len(processed_frames))
+            else:
+                cols, rows = _parse_grid(grid)
+
+            # Safety if user gave a tiny grid
+            total_slots = cols * rows if cols and rows else len(processed_frames)
+            if total_slots < len(processed_frames):
+                # Expand to fit
+                cols, rows = _auto_grid(len(processed_frames))
+
+            # ---- Assemble combined spritesheet ----
+            fw = fw or processed_frames[0].width
+            fh = fh or processed_frames[0].height
+            combined_w = cols * fw
+            combined_h = rows * fh
+            combined = Image.new("RGBA", (combined_w, combined_h), (0, 0, 0, 0))
+
+            for i, frame in enumerate(processed_frames):
+                if i >= cols * rows:
                     break
-            
-            # Create combined spritesheet
-            if processed_frames:
-                # Use the actual grid dimensions that fit
-                combined_width = frames_per_row * frame_width
-                combined_height = frames_per_col * frame_height
-                combined_image = Image.new('RGBA', (combined_width, combined_height), (0, 0, 0, 0))
-                
-                for i, frame in enumerate(processed_frames):
-                    row = i // frames_per_row
-                    col = i % frames_per_row
-                    x = col * frame_width
-                    y = row * frame_height
-                    combined_image.paste(frame, (x, y))
-                
-                # Save combined spritesheet
-                combined_path = output_dir / "combined_spritesheet.png"
-                combined_image.save(combined_path)
-                
-                # Verify the file was created
-                if not combined_path.exists():
-                    raise HTTPException(status_code=500, detail="Failed to create combined spritesheet")
-                
-                # Read the file content and convert to base64 for JSON response
-                with open(combined_path, "rb") as f:
-                    content = f.read()
-                
-                # Convert to base64 for JSON response
-                import base64
-                spritesheet_base64 = base64.b64encode(content).decode('utf-8')
-                
-                return {
-                    "success": True,
-                    "spritesheet": spritesheet_base64,
-                    "config": {
-                        "grid": grid,
-                        "frames": max_frames,
-                        "frameWidth": frame_width,
-                        "frameHeight": frame_height
-                    },
-                    "frames_processed": len(processed_frames),
-                    "spritesheet_size": f"{combined_width}x{combined_height}"
-                }
-            else:
-                raise HTTPException(status_code=500, detail="No frames were processed successfully")
-    
+                r = i // cols
+                c = i % cols
+                combined.paste(frame, (c * fw, r * fh))
+
+            # ---- Encode to base64 PNG ----
+            combined_path = frames_dir / "combined_spritesheet.png"
+            combined.save(combined_path)
+            with open(combined_path, "rb") as f:
+                b64_png = base64.b64encode(f.read()).decode("utf-8")
+
+            return {
+                "success": True,
+                "spritesheet": b64_png,
+                "spritesheet_mime": "image/png",
+                "config": {
+                    "input": file.filename,
+                    "input_type": "gif" if input_is_gif else "spritesheet",
+                    "grid": f"{cols}x{rows}" if cols and rows else "auto",
+                    "frames": len(processed_frames),
+                    "frameWidth": fw,
+                    "frameHeight": fh,
+                },
+                "spritesheet_size": f"{combined_w}x{combined_h}",
+            }
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        # Clean up temporary file
-        try:
-            Path(tmp_file_path).unlink()
-        except:
-            pass
+        if tmp_file_path and os.path.exists(tmp_file_path):
+            try:
+                os.unlink(tmp_file_path)
+            except Exception:
+                pass
+
 
 
 @api.post("/process/video-to-gif")
@@ -767,7 +837,6 @@ async def process_video_pipeline_endpoint(
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 import logging, tempfile, base64, math
 from pathlib import Path
-from PIL import Image
 
 @api.post("/process/gif-to-spritesheet")
 async def process_gif_to_spritesheet(

@@ -9,7 +9,6 @@ import { AllModelsSpritesheetResults } from '../../components/spritesheet/AllMod
 import { apiClient, SpritesheetConfig, SpritesheetAllModelsResponse } from '@/lib/api'
 import { ArrowLeft, Grid, Download, Zap, Settings, Play } from 'lucide-react'
 import Link from 'next/link'
-import SpritesheetAnimator from '@/components/spritesheet/SpritesheetAnimator'
 
 export default function SpritesheetPage() {
     const [uploadedFile, setUploadedFile] = useState<File | null>(null)
@@ -23,16 +22,12 @@ export default function SpritesheetPage() {
     } | null>(null)
     const [allModelsResult, setAllModelsResult] = useState<SpritesheetAllModelsResponse | null>(null)
     const [processingMode, setProcessingMode] = useState<'single' | 'all'>('all')
-    const [spritesheetUrl, setSpritesheetUrl] = useState<string | null>(null)
 
     const handleFileSelect = (file: File) => {
         setUploadedFile(file)
         setResult(null)
         setAllModelsResult(null)
-        console.log(file)
         // Create URL for the uploaded file
-        const url = URL.createObjectURL(file)
-        setSpritesheetUrl(url)
     }
 
     const testConnection = async () => {
@@ -198,16 +193,6 @@ export default function SpritesheetPage() {
                         />
                     )}
 
-                    {/* Animation Section - Shows immediately after upload */}
-                    {spritesheetUrl && (
-                        <SpritesheetAnimator
-                            spritesheetUrl={spritesheetUrl}
-                            gridConfig={gridConfig}
-                            frames={frames}
-                            frameRate={10}
-                            loop={true}
-                        />
-                    )}
 
                     {processingMode === 'all' ? (
                         <AllModelsSpritesheetResults
