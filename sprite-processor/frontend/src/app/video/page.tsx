@@ -13,6 +13,13 @@ export default function VideoPage() {
     const [gifUrl, setGifUrl] = useState<string | null>(null)
     const [analysis, setAnalysis] = useState<VideoAnalysisResponse | null>(null)
     const [error, setError] = useState<string | null>(null)
+    const [isConvertingToSpritesheet, setIsConvertingToSpritesheet] = useState(false)
+    const [spritesheetBlob, setSpritesheetBlob] = useState<Blob | null>(null)
+    const [spritesheetUrl, setSpritesheetUrl] = useState<string | null>(null)
+    const [spritesheetConfig, setSpritesheetConfig] = useState({
+        grid: '5x2',
+        frames: 10
+    })
     const [config, setConfig] = useState<VideoToGifConfig>({
         fps: 10,
         duration: undefined,
@@ -97,17 +104,69 @@ export default function VideoPage() {
         URL.revokeObjectURL(url)
     }
 
+    const convertGifToSpritesheet = async () => {
+        if (!gifBlob) return
+
+        setIsConvertingToSpritesheet(true)
+        setError(null)
+
+        try {
+            // Create a File object from the GIF blob
+            const gifFile = new File([gifBlob], 'converted.gif', { type: 'image/gif' })
+
+            const response = await apiClient.processSpritesheet(gifFile, {
+                grid: spritesheetConfig.grid,
+                frames: spritesheetConfig.frames
+            })
+
+            // Convert base64 to blob
+            const binaryString = atob(response.spritesheet)
+            const bytes = new Uint8Array(binaryString.length)
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i)
+            }
+            const blob = new Blob([bytes], { type: 'image/png' })
+
+            setSpritesheetBlob(blob)
+            const url = URL.createObjectURL(blob)
+            setSpritesheetUrl(url)
+        } catch (err) {
+            setError(`Spritesheet conversion failed: ${err}`)
+        } finally {
+            setIsConvertingToSpritesheet(false)
+        }
+    }
+
+    const downloadSpritesheet = () => {
+        if (!spritesheetBlob) return
+
+        const url = URL.createObjectURL(spritesheetBlob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${uploadedFile?.name.replace(/\.[^/.]+$/, '') || 'video'}_spritesheet.png`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+    }
+
     const reset = () => {
         setUploadedFile(null)
         setGifBlob(null)
         setGifUrl(null)
         setAnalysis(null)
         setError(null)
+        setSpritesheetBlob(null)
+        setSpritesheetUrl(null)
         setConfig({
             fps: 10,
             duration: undefined,
             maxWidth: 480,
             maxHeight: 480
+        })
+        setSpritesheetConfig({
+            grid: '5x2',
+            frames: 10
         })
     }
 
@@ -355,6 +414,89 @@ export default function VideoPage() {
                             </div>
                         )}
 
+                        {/* GIF to Spritesheet Conversion */}
+                        {gifUrl && !spritesheetUrl && (
+                            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                                <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                                    <Settings className="w-5 h-5 mr-2" />
+                                    Convert GIF to Spritesheet
+                                </h2>
+
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Grid Layout (cols × rows)
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={spritesheetConfig.grid}
+                                                onChange={(e) => setSpritesheetConfig(prev => ({ ...prev, grid: e.target.value }))}
+                                                placeholder="5x2"
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Number of Frames
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                max="50"
+                                                value={spritesheetConfig.frames}
+                                                onChange={(e) => setSpritesheetConfig(prev => ({ ...prev, frames: parseInt(e.target.value) || 10 }))}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <button
+                                        onClick={convertGifToSpritesheet}
+                                        disabled={isConvertingToSpritesheet}
+                                        className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                                    >
+                                        {isConvertingToSpritesheet ? 'Converting to Spritesheet...' : 'Convert to Spritesheet'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Spritesheet Preview */}
+                        {spritesheetUrl && (
+                            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h2 className="text-xl font-semibold text-gray-900 flex items-center">
+                                        <Play className="w-5 h-5 mr-2" />
+                                        Spritesheet Preview
+                                    </h2>
+                                    <button
+                                        onClick={downloadSpritesheet}
+                                        className="flex items-center px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium transition-colors"
+                                    >
+                                        <Download className="w-4 h-4 mr-1" />
+                                        Download
+                                    </button>
+                                </div>
+
+                                <div className="aspect-video bg-gray-100 rounded-lg overflow-hidden">
+                                    <img
+                                        src={spritesheetUrl}
+                                        alt="Generated Spritesheet"
+                                        className="w-full h-full object-contain"
+                                    />
+                                </div>
+
+                                {spritesheetBlob && (
+                                    <div className="mt-4 text-sm text-gray-600">
+                                        <p>File size: {(spritesheetBlob.size / 1024 / 1024).toFixed(2)} MB</p>
+                                        <p>Grid: {spritesheetConfig.grid}</p>
+                                        <p>Frames: {spritesheetConfig.frames}</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
                         {/* Error Display */}
                         {error && (
                             <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -374,6 +516,7 @@ export default function VideoPage() {
                                     <li>3. Adjust the GIF settings as needed</li>
                                     <li>4. Click "Convert to GIF" to process</li>
                                     <li>5. Preview and download your GIF</li>
+                                    <li>6. <strong>NEW:</strong> Convert GIF to spritesheet for game development!</li>
                                 </ol>
                             </div>
                         )}

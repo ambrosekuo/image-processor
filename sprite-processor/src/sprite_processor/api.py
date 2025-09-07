@@ -500,15 +500,26 @@ async def process_spritesheet(
                 if not combined_path.exists():
                     raise HTTPException(status_code=500, detail="Failed to create combined spritesheet")
                 
-                # Read the file content and return as response
+                # Read the file content and convert to base64 for JSON response
                 with open(combined_path, "rb") as f:
                     content = f.read()
                 
-                return Response(
-                    content=content,
-                    media_type="image/png",
-                    headers={"Content-Disposition": f'inline; filename="processed_spritesheet_{grid}.png"'}
-                )
+                # Convert to base64 for JSON response
+                import base64
+                spritesheet_base64 = base64.b64encode(content).decode('utf-8')
+                
+                return {
+                    "success": True,
+                    "spritesheet": spritesheet_base64,
+                    "config": {
+                        "grid": grid,
+                        "frames": max_frames,
+                        "frameWidth": frame_width,
+                        "frameHeight": frame_height
+                    },
+                    "frames_processed": len(processed_frames),
+                    "spritesheet_size": f"{combined_width}x{combined_height}"
+                }
             else:
                 raise HTTPException(status_code=500, detail="No frames were processed successfully")
     
@@ -751,6 +762,155 @@ async def process_video_pipeline_endpoint(
         except:
             pass
         raise HTTPException(status_code=500, detail=f"Video pipeline failed: {str(e)}")
+
+
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+import logging, tempfile, base64, math
+from pathlib import Path
+from PIL import Image
+
+@api.post("/process/gif-to-spritesheet")
+async def process_gif_to_spritesheet(
+    file: UploadFile = File(...),
+    grid: str = Form(...),
+    frames: Optional[int] = Form(None),
+    frameWidth: Optional[int] = Form(None),
+    frameHeight: Optional[int] = Form(None),
+):
+    """Convert an animated GIF to a spritesheet with background removal"""
+    logger.info("🎬 GIF TO SPRITESHEET REQUEST STARTED")
+    logger.info(f"   File: {getattr(file, 'filename', 'unknown')} "
+                f"({getattr(file, 'size', 'unknown')} bytes)")
+    logger.info(f"   Grid: {grid}")
+    logger.info(f"   Frames (raw): {frames}")
+
+    if not file:
+        raise HTTPException(status_code=400, detail="No file uploaded")
+
+    # Parse grid (e.g., "5x2")
+    try:
+        cols, rows = map(int, grid.lower().strip().split("x"))
+        if cols <= 0 or rows <= 0:
+            raise ValueError
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="Grid must be in format 'colsxrows' (e.g., '5x2')",
+        )
+    logger.info(f"   Parsed grid: {cols} columns x {rows} rows")
+
+    # Coerce frames to int if provided (e.g., if it arrives as a string from Form)
+    if frames is not None:
+        try:
+            frames = int(frames)
+            if frames <= 0:
+                frames = None
+        except Exception:
+            frames = None
+    logger.info(f"   Frames (normalized): {frames}")
+
+    # Save uploaded GIF temporarily
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".gif") as tmp_file:
+            content = await file.read()
+            tmp_file.write(content)
+            tmp_file_path = Path(tmp_file.name)
+        logger.info(f"   GIF saved to: {tmp_file_path} ({len(content)} bytes)")
+    except Exception as e:
+        logger.error(f"   ❌ Failed saving upload: {e}")
+        raise HTTPException(status_code=500, detail="Failed to read uploaded file")
+
+    try:
+        # Create temp output dir
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "frames"
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # ✅ Use the disk-extract helper and keyword args
+            from .video import extract_gif_frames_to_dir  # <-- IMPORTANT
+            logger.info("   Extracting frames from GIF to disk...")
+            frame_paths = extract_gif_frames_to_dir(
+                gif_path=tmp_file_path,
+                output_dir=output_dir,
+                max_frames=frames,
+            )
+
+            if not frame_paths:
+                raise HTTPException(status_code=400, detail="No frames could be extracted from the GIF")
+
+            logger.info(f"   Extracted {len(frame_paths)} frames")
+
+            # Process each frame with background removal
+            logger.info("   Processing frames with background removal...")
+            processed_frames: list[Image.Image] = []
+
+            for i, frame_path in enumerate(frame_paths):
+                try:
+                    logger.info(f"   Processing frame {i + 1}/{len(frame_paths)}: {frame_path.name}")
+                    processed_path = _process_one(frame_path, output_dir / f"processed_{frame_path.name}")
+                    processed_frames.append(Image.open(processed_path).convert("RGBA"))
+                except Exception as e:
+                    logger.error(f"   Error processing frame {i + 1}: {e}")
+                    processed_frames.append(Image.open(frame_path).convert("RGBA"))
+
+            if not processed_frames:
+                raise HTTPException(status_code=500, detail="No frames were processed successfully")
+
+            # Create spritesheet from processed frames
+            frame_w, frame_h = processed_frames[0].size
+            # Allow override if the client supplied exact cell size
+            if frameWidth and frameHeight:
+                frame_w, frame_h = int(frameWidth), int(frameHeight)
+                processed_frames = [im.resize((frame_w, frame_h)) for im in processed_frames]
+
+            frames_per_row = min(cols, len(processed_frames))
+            frames_per_col = math.ceil(len(processed_frames) / frames_per_row)
+            sheet_w = frames_per_row * frame_w
+            sheet_h = frames_per_col * frame_h
+            logger.info(f"   Spritesheet dimensions: {sheet_w}x{sheet_h}")
+
+            sheet = Image.new("RGBA", (sheet_w, sheet_h), (0, 0, 0, 0))
+            for idx, im in enumerate(processed_frames):
+                r = idx // frames_per_row
+                c = idx % frames_per_row
+                sheet.paste(im, (c * frame_w, r * frame_h))
+
+            combined_path = output_dir / "gif_spritesheet.png"
+            sheet.save(combined_path)
+
+            if not combined_path.exists():
+                raise HTTPException(status_code=500, detail="Failed to create spritesheet")
+
+            with open(combined_path, "rb") as f:
+                b = f.read()
+            spritesheet_base64 = base64.b64encode(b).decode("utf-8")
+
+            logger.info(f"   ✅ GIF TO SPRITESHEET COMPLETED: {len(b)} bytes")
+            return {
+                "success": True,
+                "spritesheet": spritesheet_base64,
+                "config": {
+                    "grid": grid,
+                    "frames": len(processed_frames),
+                    "frameWidth": frame_w,
+                    "frameHeight": frame_h,
+                },
+                "frames_processed": len(processed_frames),
+                "spritesheet_size": f"{sheet_w}x{sheet_h}",
+                "gif_frames": len(frame_paths),
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ GIF TO SPRITESHEET FAILED: {e}")
+        raise HTTPException(status_code=500, detail=f"GIF to spritesheet conversion failed: {str(e)}")
+    finally:
+        try:
+            if 'tmp_file_path' in locals() and tmp_file_path.exists():
+                tmp_file_path.unlink()
+        except Exception:
+            pass
 
 
 def serve(host: str = "127.0.0.1", port: int = 8000):

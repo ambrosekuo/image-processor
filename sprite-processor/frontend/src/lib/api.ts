@@ -231,6 +231,29 @@ export const apiClient = {
         return response.data
     },
 
+    // GIF to spritesheet processing
+    async processGifToSpritesheet(
+        file: File,
+        config: SpritesheetConfig
+    ): Promise<SpritesheetResponse> {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('grid', config.grid)
+        if (config.frames) {
+            formData.append('frames', config.frames.toString())
+        }
+        if (config.frameWidth) {
+            formData.append('frameWidth', config.frameWidth.toString())
+        }
+        if (config.frameHeight) {
+            formData.append('frameHeight', config.frameHeight.toString())
+        }
+
+        const response = await api.post('/process/gif-to-spritesheet', formData)
+
+        return response.data
+    },
+
     // Video analysis
     async analyzeVideo(file: File): Promise<VideoAnalysisResponse> {
         const formData = new FormData()

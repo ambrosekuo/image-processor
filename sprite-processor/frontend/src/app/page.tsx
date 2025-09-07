@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Upload, Grid, Download, Zap } from 'lucide-react'
+import { Upload, Grid, Download, Zap, Image, Video } from 'lucide-react'
 
 export default function HomePage() {
   return (
@@ -7,13 +7,13 @@ export default function HomePage() {
       {/* Hero Section */}
       <div className="text-center mb-16">
         <h1 className="text-5xl font-bold text-gray-900 mb-6">
-          AI-Powered Background Removal
+          Complete Sprite Processing Pipeline
         </h1>
         <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto">
-          Remove backgrounds from single images or process entire spritesheets with our advanced AI technology.
+          Convert videos to GIFs, create spritesheets, and remove backgrounds with our advanced AI technology.
           Perfect for game development, web design, and content creation.
         </p>
-        <div className="flex gap-4 justify-center">
+        <div className="flex gap-4 justify-center flex-wrap">
           <Link
             href="/upload"
             className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-semibold transition-colors flex items-center gap-2"
@@ -27,6 +27,20 @@ export default function HomePage() {
           >
             <Grid className="w-5 h-5" />
             Process Spritesheet
+          </Link>
+          <Link
+            href="/gif-to-spritesheet"
+            className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-lg font-semibold transition-colors flex items-center gap-2"
+          >
+            <Image className="w-5 h-5" />
+            GIF to Spritesheet
+          </Link>
+          <Link
+            href="/video"
+            className="bg-orange-600 hover:bg-orange-700 text-white px-8 py-3 rounded-lg font-semibold transition-colors flex items-center gap-2"
+          >
+            <Video className="w-5 h-5" />
+            Video to GIF
           </Link>
         </div>
       </div>
@@ -70,6 +84,26 @@ export default function HomePage() {
           <h3 className="text-lg font-semibold mb-2">Fast Processing</h3>
           <p className="text-gray-600">
             Powered by advanced AI models for quick and accurate background removal.
+          </p>
+        </div>
+
+        <div className="bg-white p-6 rounded-lg shadow-sm border">
+          <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
+            <Image className="w-6 h-6 text-purple-600" />
+          </div>
+          <h3 className="text-lg font-semibold mb-2">GIF to Spritesheet</h3>
+          <p className="text-gray-600">
+            Convert animated GIFs directly into spritesheets for game development.
+          </p>
+        </div>
+
+        <div className="bg-white p-6 rounded-lg shadow-sm border">
+          <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center mb-4">
+            <Video className="w-6 h-6 text-orange-600" />
+          </div>
+          <h3 className="text-lg font-semibold mb-2">Video Processing</h3>
+          <p className="text-gray-600">
+            Convert videos to GIFs and spritesheets with customizable settings.
           </p>
         </div>
       </div>

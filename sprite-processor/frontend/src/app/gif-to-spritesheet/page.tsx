@@ -7,7 +7,7 @@ import { SpritesheetViewer } from '../../components/spritesheet/SpritesheetViewe
 import { ProcessingStatus } from '@/components/upload/ProcessingStatus'
 import { AllModelsSpritesheetResults } from '../../components/spritesheet/AllModelsSpritesheetResults'
 import { apiClient, SpritesheetConfig, SpritesheetAllModelsResponse } from '@/lib/api'
-import { ArrowLeft, Grid, Download, Zap, Settings } from 'lucide-react'
+import { ArrowLeft, Grid, Download, Zap, Settings, Play } from 'lucide-react'
 import Link from 'next/link'
 import SpritesheetAnimator from '@/components/spritesheet/SpritesheetAnimator'
 
@@ -23,19 +23,16 @@ export default function SpritesheetPage() {
     } | null>(null)
     const [allModelsResult, setAllModelsResult] = useState<SpritesheetAllModelsResponse | null>(null)
     const [processingMode, setProcessingMode] = useState<'single' | 'all'>('all')
-    const [uploadedSpritesheetUrl, setUploadedSpritesheetUrl] = useState<string | null>(null)
-    console.log(uploadedSpritesheetUrl)
+    const [spritesheetUrl, setSpritesheetUrl] = useState<string | null>(null)
 
     const handleFileSelect = (file: File) => {
         setUploadedFile(file)
         setResult(null)
         setAllModelsResult(null)
         console.log(file)
-
         // Create URL for the uploaded file
         const url = URL.createObjectURL(file)
-        console.log(url)
-        setUploadedSpritesheetUrl(url)
+        setSpritesheetUrl(url)
     }
 
     const testConnection = async () => {
@@ -116,16 +113,6 @@ export default function SpritesheetPage() {
                 <div className="space-y-6">
                     <FileUpload onFileSelect={handleFileSelect} />
 
-                    {/* Animation Section - Shows immediately after upload */}
-                    {uploadedSpritesheetUrl && (
-                        <SpritesheetAnimator
-                            spritesheetUrl={uploadedSpritesheetUrl}
-                            gridConfig={gridConfig}
-                            frames={frames}
-                            frameRate={10}
-                            loop={true}
-                        />
-                    )}
                     {uploadedFile && (
                         <>
                             <GridConfig
@@ -202,12 +189,23 @@ export default function SpritesheetPage() {
                 </div>
 
                 {/* Results Section */}
-                <div>
+                <div className="space-y-6">
                     {uploadedFile && (
                         <SpritesheetViewer
                             file={uploadedFile}
                             gridConfig={gridConfig}
                             frames={frames}
+                        />
+                    )}
+
+                    {/* Animation Section - Shows immediately after upload */}
+                    {spritesheetUrl && (
+                        <SpritesheetAnimator
+                            spritesheetUrl={spritesheetUrl}
+                            gridConfig={gridConfig}
+                            frames={frames}
+                            frameRate={10}
+                            loop={true}
                         />
                     )}
 
