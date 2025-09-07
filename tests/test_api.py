@@ -92,10 +92,10 @@ class TestSpritesheetEndpoint:
             for frame in mock_frames:
                 frame.size = (32, 32)
             mock_extract_frames.return_value = mock_frames
-            
+
             # Mock the spritesheet creation
             mock_create_spritesheet.return_value = None
-            
+
             # Mock the background removal
             mock_process_one.return_value = None
 
@@ -238,7 +238,9 @@ class TestPipelineEndpoints:
                 "grid": "5x2",
             }
 
-            response = api_client.post("/process/video-pipeline", files=files, data={**data, "all_models": "true"})
+            response = api_client.post(
+                "/process/video-pipeline", files=files, data={**data, "all_models": "true"}
+            )
 
             assert response.status_code == 200
             result = response.json()

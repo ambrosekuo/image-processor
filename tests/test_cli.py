@@ -25,7 +25,9 @@ class TestProcessOne:
             result = _process_one(str(input_path), str(output_path), False, "isnet-general-use")
 
             assert result == output_path
-            mock_remove_bytes.assert_called_once_with(sample_image_bytes, model_name="isnet-general-use")
+            mock_remove_bytes.assert_called_once_with(
+                sample_image_bytes, model_name="isnet-general-use"
+            )
 
             # Check that output file was created
             assert output_path.exists()
@@ -63,7 +65,9 @@ class TestProcessOne:
             result = _process_one(str(input_path), str(output_path), True, "isnet-general-use")
 
             assert result == output_path
-            mock_remove_bytes.assert_called_once_with(sample_image_bytes, model_name="isnet-general-use")
+            mock_remove_bytes.assert_called_once_with(
+                sample_image_bytes, model_name="isnet-general-use"
+            )
 
             # Should have new data
             assert output_path.read_bytes() == b"new_processed_data"
@@ -148,14 +152,10 @@ class TestCLIApp:
             from click.testing import CliRunner
 
             runner = CliRunner()
-            result = runner.invoke(
-                app, ["one", str(input_path), "--output", str(output_path)]
-            )
+            result = runner.invoke(app, ["one", str(input_path), "--output", str(output_path)])
 
             assert result.exit_code == 0
-            mock_process_one.assert_called_once_with(
-                input_path, output_path, False
-            )
+            mock_process_one.assert_called_once_with(input_path, output_path, False)
 
     def test_app_process_directory(self, temp_dir, sample_image_bytes):
         """Test app function processing a directory."""
@@ -176,9 +176,7 @@ class TestCLIApp:
             from click.testing import CliRunner
 
             runner = CliRunner()
-            result = runner.invoke(
-                app, ["batch", str(input_dir), str(output_dir)]
-            )
+            result = runner.invoke(app, ["batch", str(input_dir), str(output_dir)])
 
             assert result.exit_code == 0
             # Should process each image in the directory
@@ -202,9 +200,7 @@ class TestCLIApp:
             )
 
             assert result.exit_code == 0
-            mock_process_one.assert_called_once_with(
-                input_path, output_path, True
-            )
+            mock_process_one.assert_called_once_with(input_path, output_path, True)
 
 
 class TestCLIErrorHandling:

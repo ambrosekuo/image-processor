@@ -7,7 +7,7 @@ from PIL import Image
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from . import remove_bytes, remove_file
+from . import remove_bytes
 
 
 def _process_one(

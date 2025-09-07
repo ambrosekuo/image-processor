@@ -2,8 +2,9 @@
 Tests for pipeline processing functions.
 """
 
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 from sprite_processor.pipeline import (
     VideoPipelineConfig,
@@ -66,7 +67,7 @@ class TestProcessVideoPipeline:
             mock_extract_frames.return_value = [b"frame1", b"frame2", b"frame3"]
             mock_create_spritesheet.return_value = None
             mock_process_one.return_value = None
-            
+
             # Create actual files that the pipeline expects
             (output_dir / "test_video.gif").touch()
             (output_dir / "test_video_spritesheet.png").touch()
@@ -108,7 +109,7 @@ class TestProcessVideoPipeline:
             mock_extract_frames.return_value = [b"frame1", b"frame2", b"frame3"]
             mock_create_spritesheet.return_value = None
             mock_process_one.return_value = None
-            
+
             # Create actual files that the pipeline expects
             (output_dir / "test_video.gif").touch()
             (output_dir / "test_video_spritesheet.png").touch()
@@ -186,12 +187,19 @@ class TestProcessVideoPipelineAllModels:
             mock_extract_frames.return_value = [b"frame1", b"frame2", b"frame3"]
             mock_create_spritesheet.return_value = None
             mock_process_one.return_value = None
-            
+
             # Create actual files that the pipeline expects
             (output_dir / "test_video.gif").touch()
             (output_dir / "test_video_spritesheet.png").touch()
             # Create files for each model
-            for model in ["isnet-general-use", "u2net_human_seg", "u2net", "u2netp", "u2net_cloth_seg", "silueta"]:
+            for model in [
+                "isnet-general-use",
+                "u2net_human_seg",
+                "u2net",
+                "u2netp",
+                "u2net_cloth_seg",
+                "silueta",
+            ]:
                 (output_dir / f"test_video_{model}_processed.png").touch()
 
             config = VideoPipelineConfig(
@@ -234,7 +242,7 @@ class TestProcessVideoPipelineAllModels:
             mock_extract_frames.return_value = [b"frame1", b"frame2", b"frame3"]
             mock_create_spritesheet.return_value = None
             mock_process_one.side_effect = mock_process_one_side_effect
-            
+
             # Create actual files that the pipeline expects
             (output_dir / "test_video.gif").touch()
             (output_dir / "test_video_spritesheet.png").touch()

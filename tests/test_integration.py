@@ -4,13 +4,13 @@ Integration tests for sprite-processor.
 These tests verify that the different components work together correctly.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from sprite_processor import remove_bytes, remove_file
 from sprite_processor.pipeline import VideoPipelineConfig, process_video_pipeline
-from sprite_processor.video import analyze_video, video_to_gif
+from sprite_processor.video import analyze_video
 
 
 class TestEndToEndWorkflows:
@@ -54,7 +54,7 @@ class TestEndToEndWorkflows:
                 "width": 1280,
                 "height": 720,
                 "file_size": 1024000,
-                "format": "mp4"
+                "format": "mp4",
             }
 
             # Test video analysis
@@ -66,7 +66,7 @@ class TestEndToEndWorkflows:
             # Test video to GIF conversion
             with patch("sprite_processor.video.video_to_gif") as mock_video_to_gif:
                 mock_video_to_gif.return_value = str(output_dir / "output.gif")
-                
+
                 gif_path = mock_video_to_gif(
                     str(sample_video_file),
                     str(output_dir / "output.gif"),
