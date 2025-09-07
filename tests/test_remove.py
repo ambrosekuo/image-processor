@@ -22,10 +22,8 @@ def test_smoke_png():
         img = Image.new("RGB", (1, 1), color=(255, 255, 255))
         img.save(sample, format="PNG")
 
-    with patch("sprite_processor.new_session") as mock_session:
-        mock_session_instance = MagicMock()
-        mock_session_instance.predict.return_value = b"fake_processed_data"
-        mock_session.return_value = mock_session_instance
+    with patch("sprite_processor.remove") as mock_remove:
+        mock_remove.return_value = b"fake_processed_data"
 
         out = remove_file(str(sample))
         assert isinstance(out, (bytes, bytearray))
@@ -45,10 +43,8 @@ def test_remove_file_with_model():
     # Test with different models
     models = ["isnet-general-use", "u2net", "u2netp"]
     for model in models:
-        with patch("sprite_processor.new_session") as mock_session:
-            mock_session_instance = MagicMock()
-            mock_session_instance.predict.return_value = b"fake_processed_data"
-            mock_session.return_value = mock_session_instance
+        with patch("sprite_processor.remove") as mock_remove:
+            mock_remove.return_value = b"fake_processed_data"
 
             out = remove_file(str(sample), model_name=model)
             assert isinstance(out, (bytes, bytearray))

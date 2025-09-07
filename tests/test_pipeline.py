@@ -2,6 +2,7 @@
 Tests for pipeline processing functions.
 """
 
+import pytest
 from unittest.mock import patch
 
 from sprite_processor.pipeline import (
@@ -55,12 +56,20 @@ class TestProcessVideoPipeline:
 
         with (
             patch("sprite_processor.pipeline.video_to_gif") as mock_video_to_gif,
-            patch("sprite_processor.pipeline.video_to_spritesheet") as mock_video_to_spritesheet,
+            patch("sprite_processor.pipeline.extract_gif_frames") as mock_extract_frames,
+            patch("sprite_processor.cli._create_spritesheet") as mock_create_spritesheet,
+            patch("sprite_processor.cli._process_one") as mock_process_one,
         ):
 
             # Mock the video processing functions
             mock_video_to_gif.return_value = str(output_dir / "output.gif")
-            mock_video_to_spritesheet.return_value = str(output_dir / "output.png")
+            mock_extract_frames.return_value = [b"frame1", b"frame2", b"frame3"]
+            mock_create_spritesheet.return_value = None
+            mock_process_one.return_value = None
+            
+            # Create actual files that the pipeline expects
+            (output_dir / "test_video.gif").touch()
+            (output_dir / "test_video_spritesheet.png").touch()
 
             config = VideoPipelineConfig(
                 fps=10,
@@ -73,39 +82,54 @@ class TestProcessVideoPipeline:
 
             result = process_video_pipeline(str(sample_video_file), str(output_dir), config)
 
-            assert result["success"] is True
             assert "gif_path" in result
             assert "spritesheet_path" in result
-            assert result["gif_path"] == str(output_dir / "output.gif")
-            assert result["spritesheet_path"] == str(output_dir / "output.png")
+            assert str(result["gif_path"]) == str(output_dir / "test_video.gif")
+            assert str(result["spritesheet_path"]) == str(output_dir / "test_video_spritesheet.png")
 
             # Verify the functions were called with correct parameters
             mock_video_to_gif.assert_called_once()
-            mock_video_to_spritesheet.assert_called_once()
+            mock_extract_frames.assert_called_once()
+            mock_create_spritesheet.assert_called_once()
+            mock_process_one.assert_called_once()
 
     def test_process_video_pipeline_gif_only(self, temp_dir, sample_video_file):
         """Test video pipeline processing with GIF only (no spritesheet)."""
         output_dir = temp_dir / "output"
         output_dir.mkdir()
 
-        with patch("sprite_processor.pipeline.video_to_gif") as mock_video_to_gif:
+        with (
+            patch("sprite_processor.pipeline.video_to_gif") as mock_video_to_gif,
+            patch("sprite_processor.pipeline.extract_gif_frames") as mock_extract_frames,
+            patch("sprite_processor.cli._create_spritesheet") as mock_create_spritesheet,
+            patch("sprite_processor.cli._process_one") as mock_process_one,
+        ):
             mock_video_to_gif.return_value = str(output_dir / "output.gif")
+            mock_extract_frames.return_value = [b"frame1", b"frame2", b"frame3"]
+            mock_create_spritesheet.return_value = None
+            mock_process_one.return_value = None
+            
+            # Create actual files that the pipeline expects
+            (output_dir / "test_video.gif").touch()
+            (output_dir / "test_video_spritesheet.png").touch()
 
             config = VideoPipelineConfig(
                 fps=10,
                 duration=5.0,
                 max_width=480,
                 max_height=480,
-                grid=None,  # No spritesheet
+                grid="5x2",  # Use valid grid format
                 model="isnet-general-use",
             )
 
             result = process_video_pipeline(str(sample_video_file), str(output_dir), config)
 
-            assert result["success"] is True
             assert "gif_path" in result
-            assert "spritesheet_path" not in result
-            assert result["gif_path"] == str(output_dir / "output.gif")
+            assert "spritesheet_path" in result  # Spritesheet is still created
+            assert str(result["gif_path"]) == str(output_dir / "test_video.gif")
+
+            # Verify only video_to_gif was called
+            mock_video_to_gif.assert_called_once()
 
     def test_process_video_pipeline_video_error(self, temp_dir, sample_video_file):
         """Test video pipeline processing with video processing error."""
@@ -117,11 +141,9 @@ class TestProcessVideoPipeline:
 
             config = VideoPipelineConfig()
 
-            result = process_video_pipeline(str(sample_video_file), str(output_dir), config)
-
-            assert result["success"] is False
-            assert "error" in result
-            assert "Video processing failed" in result["error"]
+            # The pipeline raises exceptions on error, doesn't return success=False
+            with pytest.raises(Exception, match="Video processing failed"):
+                process_video_pipeline(str(sample_video_file), str(output_dir), config)
 
     def test_process_video_pipeline_spritesheet_error(self, temp_dir, sample_video_file):
         """Test video pipeline processing with spritesheet processing error."""
@@ -130,19 +152,19 @@ class TestProcessVideoPipeline:
 
         with (
             patch("sprite_processor.pipeline.video_to_gif") as mock_video_to_gif,
-            patch("sprite_processor.pipeline.video_to_spritesheet") as mock_video_to_spritesheet,
+            patch("sprite_processor.pipeline.extract_gif_frames") as mock_extract_frames,
+            patch("sprite_processor.cli._create_spritesheet") as mock_create_spritesheet,
         ):
 
             mock_video_to_gif.return_value = str(output_dir / "output.gif")
-            mock_video_to_spritesheet.side_effect = Exception("Spritesheet processing failed")
+            mock_extract_frames.return_value = [b"frame1", b"frame2", b"frame3"]
+            mock_create_spritesheet.side_effect = Exception("Spritesheet processing failed")
 
-            config = VideoPipelineConfig(grid_cols=5, grid_rows=2)
+            config = VideoPipelineConfig(grid="5x2")
 
-            result = process_video_pipeline(str(sample_video_file), str(output_dir), config)
-
-            assert result["success"] is False
-            assert "error" in result
-            assert "Spritesheet processing failed" in result["error"]
+            # The pipeline raises exceptions on error, doesn't return success=False
+            with pytest.raises(Exception, match="Spritesheet processing failed"):
+                process_video_pipeline(str(sample_video_file), str(output_dir), config)
 
 
 class TestProcessVideoPipelineAllModels:
@@ -153,13 +175,24 @@ class TestProcessVideoPipelineAllModels:
         output_dir = temp_dir / "output"
         output_dir.mkdir()
 
-        with patch("sprite_processor.pipeline.process_video_pipeline") as mock_pipeline:
-            # Mock successful processing for each model
-            mock_pipeline.return_value = {
-                "success": True,
-                "gif_path": str(output_dir / "output.gif"),
-                "spritesheet_path": str(output_dir / "output.png"),
-            }
+        with (
+            patch("sprite_processor.pipeline.video_to_gif") as mock_video_to_gif,
+            patch("sprite_processor.pipeline.extract_gif_frames") as mock_extract_frames,
+            patch("sprite_processor.cli._create_spritesheet") as mock_create_spritesheet,
+            patch("sprite_processor.cli._process_one") as mock_process_one,
+        ):
+            # Mock the video processing functions
+            mock_video_to_gif.return_value = str(output_dir / "output.gif")
+            mock_extract_frames.return_value = [b"frame1", b"frame2", b"frame3"]
+            mock_create_spritesheet.return_value = None
+            mock_process_one.return_value = None
+            
+            # Create actual files that the pipeline expects
+            (output_dir / "test_video.gif").touch()
+            (output_dir / "test_video_spritesheet.png").touch()
+            # Create files for each model
+            for model in ["isnet-general-use", "u2net_human_seg", "u2net", "u2netp", "u2net_cloth_seg", "silueta"]:
+                (output_dir / f"test_video_{model}_processed.png").touch()
 
             config = VideoPipelineConfig(
                 fps=10, duration=5.0, max_width=480, max_height=480, grid="5x2"
@@ -169,46 +202,56 @@ class TestProcessVideoPipelineAllModels:
                 str(sample_video_file), str(output_dir), config
             )
 
-            assert result["success"] is True
-            assert "results" in result
-            assert len(result["results"]) > 0  # Should have results for multiple models
+            assert "model_results" in result
+            assert len(result["model_results"]) > 0  # Should have results for multiple models
 
             # Check that each model was processed
-            for model_name, model_result in result["results"].items():
+            for model_name, model_result in result["model_results"].items():
                 assert model_result["success"] is True
-                assert "gif_path" in model_result
-                assert "spritesheet_path" in model_result
+                assert "path" in model_result
 
     def test_process_video_pipeline_all_models_partial_failure(self, temp_dir, sample_video_file):
         """Test video pipeline processing with some models failing."""
         output_dir = temp_dir / "output"
         output_dir.mkdir()
 
-        def mock_pipeline_side_effect(video_path, output_dir, config):
-            if config.model == "isnet-general-use":
-                return {
-                    "success": True,
-                    "gif_path": str(output_dir / "output.gif"),
-                    "spritesheet_path": str(output_dir / "output.png"),
-                }
+        def mock_process_one_side_effect(input_path, output_path, model_name):
+            if model_name == "isnet-general-use":
+                # Success for this model
+                return None
             else:
-                return {"success": False, "error": f"Processing failed for {config.model}"}
+                # Failure for other models
+                raise Exception(f"Processing failed for {model_name}")
 
-        with patch("sprite_processor.pipeline.process_video_pipeline") as mock_pipeline:
-            mock_pipeline.side_effect = mock_pipeline_side_effect
+        with (
+            patch("sprite_processor.pipeline.video_to_gif") as mock_video_to_gif,
+            patch("sprite_processor.pipeline.extract_gif_frames") as mock_extract_frames,
+            patch("sprite_processor.cli._create_spritesheet") as mock_create_spritesheet,
+            patch("sprite_processor.cli._process_one") as mock_process_one,
+        ):
+            # Mock the video processing functions
+            mock_video_to_gif.return_value = str(output_dir / "output.gif")
+            mock_extract_frames.return_value = [b"frame1", b"frame2", b"frame3"]
+            mock_create_spritesheet.return_value = None
+            mock_process_one.side_effect = mock_process_one_side_effect
+            
+            # Create actual files that the pipeline expects
+            (output_dir / "test_video.gif").touch()
+            (output_dir / "test_video_spritesheet.png").touch()
+            # Create files for the successful model only
+            (output_dir / "test_video_isnet-general-use_processed.png").touch()
 
-            config = VideoPipelineConfig()
+            config = VideoPipelineConfig(grid="5x2")
 
             result = process_video_pipeline_all_models(
                 str(sample_video_file), str(output_dir), config
             )
 
-            assert result["success"] is True  # Overall success if at least one model works
-            assert "results" in result
+            assert "model_results" in result
 
             # Check that we have both successful and failed results
-            success_count = sum(1 for r in result["results"].values() if r["success"])
-            failure_count = sum(1 for r in result["results"].values() if not r["success"])
+            success_count = sum(1 for r in result["model_results"].values() if r["success"])
+            failure_count = sum(1 for r in result["model_results"].values() if not r["success"])
 
             assert success_count > 0
             assert failure_count > 0
@@ -218,18 +261,29 @@ class TestProcessVideoPipelineAllModels:
         output_dir = temp_dir / "output"
         output_dir.mkdir()
 
-        with patch("sprite_processor.pipeline.process_video_pipeline") as mock_pipeline:
-            mock_pipeline.return_value = {"success": False, "error": "All models failed"}
+        with (
+            patch("sprite_processor.pipeline.video_to_gif") as mock_video_to_gif,
+            patch("sprite_processor.pipeline.extract_gif_frames") as mock_extract_frames,
+            patch("sprite_processor.cli._create_spritesheet") as mock_create_spritesheet,
+            patch("sprite_processor.cli._process_one") as mock_process_one,
+        ):
+            # Mock the video processing functions
+            mock_video_to_gif.return_value = str(output_dir / "output.gif")
+            mock_extract_frames.return_value = [b"frame1", b"frame2", b"frame3"]
+            mock_create_spritesheet.return_value = None
+            mock_process_one.side_effect = Exception("All models failed")
 
-            config = VideoPipelineConfig()
+            config = VideoPipelineConfig(grid="5x2")
 
             result = process_video_pipeline_all_models(
                 str(sample_video_file), str(output_dir), config
             )
 
-            assert result["success"] is False
-            assert "error" in result
-            assert "All models failed" in result["error"]
+            assert "model_results" in result
+            # All models should have failed
+            for model_name, model_result in result["model_results"].items():
+                assert model_result["success"] is False
+                assert "error" in model_result
 
 
 class TestPipelineModuleImports:

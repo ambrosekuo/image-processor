@@ -81,11 +81,23 @@ class TestSpritesheetEndpoint:
 
     def test_spritesheet_endpoint_gif_input(self, api_client, sample_gif):
         """Test spritesheet processing with GIF input."""
-        with patch("sprite_processor.api._maybe_process_frame") as mock_process:
-            # Mock processing
-            mock_img = MagicMock()
-            mock_img.size = (32, 32)
-            mock_process.return_value = mock_img
+        # Mock the entire spritesheet processing pipeline
+        with (
+            patch("sprite_processor.video.extract_gif_frames") as mock_extract_frames,
+            patch("sprite_processor.cli._create_spritesheet") as mock_create_spritesheet,
+            patch("sprite_processor.cli._process_one") as mock_process_one,
+        ):
+            # Mock the GIF frame extraction
+            mock_frames = [MagicMock() for _ in range(4)]
+            for frame in mock_frames:
+                frame.size = (32, 32)
+            mock_extract_frames.return_value = mock_frames
+            
+            # Mock the spritesheet creation
+            mock_create_spritesheet.return_value = None
+            
+            # Mock the background removal
+            mock_process_one.return_value = None
 
             files = {"file": ("animation.gif", sample_gif, "image/gif")}
             data = {"grid": "auto", "frames": "4", "model": "isnet-general-use"}
@@ -103,7 +115,7 @@ class TestSpritesheetEndpoint:
 
         response = api_client.post("/process/spritesheet", files=files, data=data)
         assert response.status_code == 400
-        assert "Grid must be in format" in response.json()["detail"]
+        assert "Grid must be 'colsxrows'" in response.json()["detail"]
 
     def test_spritesheet_endpoint_no_file(self, api_client):
         """Test spritesheet endpoint without file."""
@@ -117,19 +129,15 @@ class TestVideoToGifEndpoint:
     def test_video_to_gif_endpoint_success(self, api_client, sample_video_file):
         """Test successful video to GIF conversion."""
         with patch("sprite_processor.api.video_to_gif") as mock_video_to_gif:
-            mock_video_to_gif.return_value = str(sample_video_file)
+            mock_video_to_gif.return_value = sample_video_file
 
-            with patch("sprite_processor.api.Path") as mock_path:
-                mock_path.return_value.exists.return_value = True
-                mock_path.return_value.stat.return_value.st_size = 1000
+            files = {"file": ("test.mp4", b"fake video data", "video/mp4")}
+            data = {"fps": "10", "duration": "5.0", "max_width": "480", "max_height": "480"}
 
-                files = {"file": ("test.mp4", b"fake video data", "video/mp4")}
-                data = {"fps": "10", "duration": "5.0", "max_width": "480", "max_height": "480"}
+            response = api_client.post("/process/video-to-gif", files=files, data=data)
 
-                response = api_client.post("/process/video-to-gif", files=files, data=data)
-
-                assert response.status_code == 200
-                assert response.headers["content-type"] == "image/gif"
+            assert response.status_code == 200
+            assert response.headers["content-type"] == "image/gif"
 
     def test_video_to_gif_endpoint_gif_input(self, api_client, sample_gif):
         """Test video to GIF endpoint with GIF input (should return as-is)."""
@@ -168,9 +176,9 @@ class TestAnalyzeVideoEndpoint:
 
             assert response.status_code == 200
             result = response.json()
-            assert result["fps"] == 10
-            assert result["duration"] == 5.0
-            assert result["frames"] == 50
+            assert result["analysis"]["fps"] == 10
+            assert result["analysis"]["duration"] == 5.0
+            assert result["analysis"]["frames"] == 50
 
     def test_analyze_video_endpoint_no_file(self, api_client):
         """Test analyze video endpoint without file."""
@@ -186,18 +194,16 @@ class TestPipelineEndpoints:
         with patch("sprite_processor.api.process_video_pipeline") as mock_pipeline:
             mock_pipeline.return_value = {
                 "success": True,
-                "gif_path": str(sample_video_file),
-                "spritesheet_path": str(sample_video_file),
+                "gif_path": sample_video_file,
+                "spritesheet_path": sample_video_file,
+                "processed_path": sample_video_file,
             }
 
             files = {"file": ("test.mp4", b"fake video data", "video/mp4")}
             data = {
                 "fps": "10",
                 "duration": "5.0",
-                "max_width": "480",
-                "max_height": "480",
-                "grid_cols": "5",
-                "grid_rows": "2",
+                "grid": "5x2",
                 "model": "isnet-general-use",
             }
 
@@ -211,10 +217,17 @@ class TestPipelineEndpoints:
         """Test video pipeline processing with all models endpoint."""
         with patch("sprite_processor.api.process_video_pipeline_all_models") as mock_pipeline:
             mock_pipeline.return_value = {
-                "success": True,
-                "results": {
-                    "isnet-general-use": {"gif_path": str(sample_video_file)},
-                    "u2net_human_seg": {"gif_path": str(sample_video_file)},
+                "gif_path": sample_video_file,
+                "spritesheet_path": sample_video_file,
+                "model_results": {
+                    "isnet-general-use": {
+                        "success": True,
+                        "path": sample_video_file,
+                    },
+                    "u2net_human_seg": {
+                        "success": True,
+                        "path": sample_video_file,
+                    },
                 },
             }
 
@@ -222,18 +235,15 @@ class TestPipelineEndpoints:
             data = {
                 "fps": "10",
                 "duration": "5.0",
-                "max_width": "480",
-                "max_height": "480",
-                "grid_cols": "5",
-                "grid_rows": "2",
+                "grid": "5x2",
             }
 
-            response = api_client.post("/process/video-pipeline-all-models", files=files, data=data)
+            response = api_client.post("/process/video-pipeline", files=files, data={**data, "all_models": "true"})
 
             assert response.status_code == 200
             result = response.json()
             assert result["success"] is True
-            assert "results" in result
+            assert "model_results" in result
 
 
 class TestRemoveAllModelsEndpoint:
@@ -250,9 +260,8 @@ class TestRemoveAllModelsEndpoint:
 
             assert response.status_code == 200
             result = response.json()
-            assert result["success"] is True
-            assert "results" in result
-            assert len(result["results"]) > 0  # Should have results for multiple models
+            assert "models" in result
+            assert len(result["models"]) > 0  # Should have results for multiple models
 
     def test_remove_all_models_endpoint_no_file(self, api_client):
         """Test remove all models endpoint without file."""

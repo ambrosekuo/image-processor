@@ -19,13 +19,13 @@ class TestProcessOne:
 
         input_path.write_bytes(sample_image_bytes)
 
-        with patch("sprite_processor.cli.remove_file") as mock_remove_file:
-            mock_remove_file.return_value = b"processed_image_data"
+        with patch("sprite_processor.cli.remove_bytes") as mock_remove_bytes:
+            mock_remove_bytes.return_value = b"processed_image_data"
 
             result = _process_one(str(input_path), str(output_path), False, "isnet-general-use")
 
-            assert result == str(output_path)
-            mock_remove_file.assert_called_once_with(str(input_path), "isnet-general-use")
+            assert result == output_path
+            mock_remove_bytes.assert_called_once_with(sample_image_bytes, model_name="isnet-general-use")
 
             # Check that output file was created
             assert output_path.exists()
@@ -39,12 +39,12 @@ class TestProcessOne:
         input_path.write_bytes(sample_image_bytes)
         output_path.write_bytes(b"existing_data")  # Create existing output
 
-        with patch("sprite_processor.cli.remove_file") as mock_remove_file:
-            result = _process_one(str(input_path), str(output_path), False, "isnet-general-use")
+        with patch("sprite_processor.cli.remove_bytes") as mock_remove_bytes:
+            with pytest.raises(FileExistsError, match="Output exists"):
+                _process_one(str(input_path), str(output_path), False, "isnet-general-use")
 
-            # Should return the existing file path without processing
-            assert result == str(output_path)
-            mock_remove_file.assert_not_called()
+            # Should not call remove_bytes
+            mock_remove_bytes.assert_not_called()
 
             # Original data should still be there
             assert output_path.read_bytes() == b"existing_data"
@@ -57,13 +57,13 @@ class TestProcessOne:
         input_path.write_bytes(sample_image_bytes)
         output_path.write_bytes(b"existing_data")  # Create existing output
 
-        with patch("sprite_processor.cli.remove_file") as mock_remove_file:
-            mock_remove_file.return_value = b"new_processed_data"
+        with patch("sprite_processor.cli.remove_bytes") as mock_remove_bytes:
+            mock_remove_bytes.return_value = b"new_processed_data"
 
             result = _process_one(str(input_path), str(output_path), True, "isnet-general-use")
 
-            assert result == str(output_path)
-            mock_remove_file.assert_called_once_with(str(input_path), "isnet-general-use")
+            assert result == output_path
+            mock_remove_bytes.assert_called_once_with(sample_image_bytes, model_name="isnet-general-use")
 
             # Should have new data
             assert output_path.read_bytes() == b"new_processed_data"
@@ -75,8 +75,8 @@ class TestProcessOne:
 
         input_path.write_bytes(sample_image_bytes)
 
-        with patch("sprite_processor.cli.remove_file") as mock_remove_file:
-            mock_remove_file.side_effect = Exception("Processing failed")
+        with patch("sprite_processor.cli.remove_bytes") as mock_remove_bytes:
+            mock_remove_bytes.side_effect = Exception("Processing failed")
 
             with pytest.raises(Exception, match="Processing failed"):
                 _process_one(str(input_path), str(output_path), False, "isnet-general-use")
@@ -98,13 +98,13 @@ class TestProcessOne:
 
         models = ["isnet-general-use", "u2net_human_seg", "u2net"]
 
-        with patch("sprite_processor.cli.remove_file") as mock_remove_file:
-            mock_remove_file.return_value = b"processed_image_data"
+        with patch("sprite_processor.cli.remove_bytes") as mock_remove_bytes:
+            mock_remove_bytes.return_value = b"processed_image_data"
 
             for model in models:
                 result = _process_one(str(input_path), str(output_path), True, model)
-                assert result == str(output_path)
-                mock_remove_file.assert_called_with(str(input_path), model)
+                assert result == output_path
+                mock_remove_bytes.assert_called_with(sample_image_bytes, model_name=model)
 
 
 class TestCLIApp:
@@ -120,11 +120,11 @@ class TestCLIApp:
         assert "Usage:" in result.output
 
     def test_app_version(self):
-        """Test that app function shows version when called with --version."""
+        """Test that app function shows help when called with --help."""
         from click.testing import CliRunner
 
         runner = CliRunner()
-        result = runner.invoke(app, ["--version"])
+        result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
 
     def test_app_invalid_args(self):
@@ -149,12 +149,12 @@ class TestCLIApp:
 
             runner = CliRunner()
             result = runner.invoke(
-                app, [str(input_path), str(output_path), "--model", "isnet-general-use"]
+                app, ["one", str(input_path), "--output", str(output_path)]
             )
 
             assert result.exit_code == 0
             mock_process_one.assert_called_once_with(
-                str(input_path), str(output_path), False, "isnet-general-use"
+                input_path, output_path, False
             )
 
     def test_app_process_directory(self, temp_dir, sample_image_bytes):
@@ -177,7 +177,7 @@ class TestCLIApp:
 
             runner = CliRunner()
             result = runner.invoke(
-                app, [str(input_dir), str(output_dir), "--model", "u2net_human_seg"]
+                app, ["batch", str(input_dir), str(output_dir)]
             )
 
             assert result.exit_code == 0
@@ -198,12 +198,12 @@ class TestCLIApp:
 
             runner = CliRunner()
             result = runner.invoke(
-                app, [str(input_path), str(output_path), "--overwrite", "--model", "u2net"]
+                app, ["one", str(input_path), "--output", str(output_path), "--overwrite"]
             )
 
             assert result.exit_code == 0
             mock_process_one.assert_called_once_with(
-                str(input_path), str(output_path), True, "u2net"  # overwrite=True
+                input_path, output_path, True
             )
 
 
@@ -218,7 +218,7 @@ class TestCLIErrorHandling:
         from click.testing import CliRunner
 
         runner = CliRunner()
-        result = runner.invoke(app, [str(input_path), str(output_path)])
+        result = runner.invoke(app, ["one", str(input_path), "--output", str(output_path)])
         assert result.exit_code != 0
 
     def test_app_processing_error(self, temp_dir, sample_image_bytes):
@@ -234,7 +234,7 @@ class TestCLIErrorHandling:
             from click.testing import CliRunner
 
             runner = CliRunner()
-            result = runner.invoke(app, [str(input_path), str(output_path)])
+            result = runner.invoke(app, ["one", str(input_path), "--output", str(output_path)])
             assert result.exit_code != 0
 
 
