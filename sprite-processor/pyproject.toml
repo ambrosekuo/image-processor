@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sprite-processor"
+version = "0.1.0"
+description = "Complete sprite processing pipeline: video to GIF, spritesheet extraction, and background removal."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "You" }]
+dependencies = [
+  "rembg>=2.0.57",   # core bg remover
+  "Pillow>=10.4.0",
+  "fastapi>=0.115.0",
+  "uvicorn>=0.30.0",
+  "watchdog>=4.0.0",  # watch-mode for folders
+  "moviepy>=1.0.3",  # video processing
+  "opencv-python>=4.8.0", # computer vision
+  "imageio[ffmpeg]>=2.31.0", # video I/O
+  "python-multipart>=0.0.6", # file uploads
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0",
+  "pytest-cov>=5.0.0",
+  "ruff>=0.6.0",
+  "black>=24.8.0",
+  "isort>=5.13.2",
+  "pre-commit>=3.8.0"
+]
+
+[project.scripts]
+sprite-processor = "sprite_processor.cli:app"         # CLI entry
+sprite-processor-api = "sprite_processor.api:serve"   # API entry
+
+[tool.isort]
+profile = "black"
+
+[tool.ruff]
+line-length = 100
+select = ["E","F","I","B","UP"]
+ignore = []
+
+[tool.black]
+line-length = 100
