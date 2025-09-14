@@ -76,70 +76,276 @@ api.add_middleware(
 def health():
     return {"ok": True}
 
-
 @api.post("/analyze-spritesheet")
 async def analyze_spritesheet(file: UploadFile = File(...)):
-    """Analyze spritesheet dimensions and suggest grid layouts"""
+    """
+    Detect sprites on alpha or white background, infer (cols x rows), tile size,
+    and return per-frame boxes. Robust to big gutters and non-uniform padding.
+    """
     if not file:
         raise HTTPException(status_code=400, detail="No file uploaded")
 
-    try:
-        from PIL import Image
+    import io, math, tempfile
+    from pathlib import Path
+    from typing import List, Tuple, Dict, Any, Optional
 
-        # Save uploaded file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_file:
-            content = await file.read()
-            tmp_file.write(content)
-            tmp_file_path = tmp_file.name
+    import numpy as np
+    from PIL import Image
 
-        # Load spritesheet
-        spritesheet = Image.open(tmp_file_path)
-        width, height = spritesheet.size
+    MIN_BLOB_AREA = 32 * 32      # ignore tiny specks
+    MIN_TILE = 16
+    MAX_FRAMES = 512
+    WHITE_THR = 245              # pixels lighter than this are “white-ish”
+    EDGE_THR = 12                # edge fallback for very light sprites
+    ROW_JOIN_FACTOR = 0.7        # how tightly to group centers vertically
+    COL_JOIN_FACTOR = 0.7        # ditto horizontally
 
-        # Find common divisors for suggested grid layouts
-        def find_divisors(n):
-            divisors = []
-            for i in range(1, min(n, 20) + 1):  # Limit to reasonable grid sizes
-                if n % i == 0:
-                    divisors.append(i)
-            return divisors
+    tmp_file_path: Optional[str] = None
+    img: Optional[Image.Image] = None
 
-        width_divisors = find_divisors(width)
-        height_divisors = find_divisors(height)
-
-        # Generate suggested layouts
-        suggestions = []
-        for w in width_divisors[:5]:  # Top 5 width divisors
-            for h in height_divisors[:5]:  # Top 5 height divisors
-                if w * h <= 50:  # Reasonable total frame count
-                    frame_width = width // w
-                    frame_height = height // h
-                    suggestions.append(
-                        {
-                            "grid": f"{w}x{h}",
-                            "frame_size": f"{frame_width}x{frame_height}",
-                            "total_frames": w * h,
-                        }
-                    )
-
-        # Sort by total frames
-        suggestions.sort(key=lambda x: x["total_frames"])
-
-        return {
-            "spritesheet_size": f"{width}x{height}",
-            "suggested_layouts": suggestions[:10],  # Top 10 suggestions
-            "width_divisors": width_divisors,
-            "height_divisors": height_divisors,
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # Clean up temporary file
+    def cleanup():
         try:
-            Path(tmp_file_path).unlink()
-        except:
-            pass
+            if img: img.close()
+        except: pass
+        try:
+            if tmp_file_path: Path(tmp_file_path).unlink(missing_ok=True)
+        except: pass
+
+    # ---- tiny helpers --------------------------------------------------------
+    def to_mask_rgba(a: np.ndarray, rgb: np.ndarray) -> np.ndarray:
+        """
+        Foreground mask that works with alpha OR white bg:
+          - alpha > 8 is foreground
+          - OR pixel is not almost-white
+          - OR strong edge magnitude
+        """
+        h, w = a.shape
+        r, g, b = rgb[...,0].astype(np.float32), rgb[...,1].astype(np.float32), rgb[...,2].astype(np.float32)
+        lum = 0.2126*r + 0.7152*g + 0.0722*b
+
+        not_white = lum < WHITE_THR
+
+        # Simple Sobel-like magnitude for very light sprites on white
+        dx = np.zeros_like(lum)
+        dy = np.zeros_like(lum)
+        dx[:,1:-1] = np.abs(lum[:,2:] - lum[:,:-2]) * 0.5
+        dy[1:-1,:] = np.abs(lum[2:,:] - lum[:-2,:]) * 0.5
+        edge_mag = dx + dy
+        has_edge = edge_mag > EDGE_THR
+
+        mask = (a > 8) | not_white | has_edge
+        return mask.astype(np.uint8)
+
+    def find_components(mask: np.ndarray) -> List[Tuple[int,int,int,int]]:
+        """
+        Return list of bounding boxes (x,y,w,h) for connected components.
+        Uses OpenCV if available; otherwise a NumPy flood-fill.
+        """
+        try:
+            import cv2
+            # clean noise
+            kernel = np.ones((3,3), np.uint8)
+            m = cv2.morphologyEx(mask*255, cv2.MORPH_OPEN, kernel, iterations=1)
+            cnts, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            boxes = []
+            for c in cnts:
+                x,y,w,h = cv2.boundingRect(c)
+                if w*h >= MIN_BLOB_AREA:
+                    boxes.append((int(x),int(y),int(w),int(h)))
+            return boxes
+        except Exception:
+            # Fallback: very simple flood fill (4-neighbor)
+            h, w = mask.shape
+            vis = np.zeros_like(mask, dtype=np.uint8)
+            boxes = []
+            for yy in range(h):
+                for xx in range(w):
+                    if mask[yy,xx] == 0 or vis[yy,xx]: continue
+                    # BFS
+                    q = [(xx,yy)]
+                    vis[yy,xx] = 1
+                    minx=miny=10**9; maxx=maxy=-1
+                    sz = 0
+                    while q:
+                        x,y = q.pop()
+                        sz += 1
+                        if x<minx: minx=x
+                        if x>maxx: maxx=x
+                        if y<miny: miny=y
+                        if y>maxy: maxy=y
+                        if x>0 and mask[y,x-1] and not vis[y,x-1]:
+                            vis[y,x-1]=1; q.append((x-1,y))
+                        if x<w-1 and mask[y,x+1] and not vis[y,x+1]:
+                            vis[y,x+1]=1; q.append((x+1,y))
+                        if y>0 and mask[y-1,x] and not vis[y-1,x]:
+                            vis[y-1,x]=1; q.append((x,y-1))
+                        if y<h-1 and mask[y+1,x] and not vis[y+1,x]:
+                            vis[y+1,x]=1; q.append((x,y+1))
+                    bw = maxx-minx+1; bh = maxy-miny+1
+                    if bw*bh >= MIN_BLOB_AREA:
+                        boxes.append((minx,miny,bw,bh))
+            return boxes
+
+    def group_sorted(vals: List[float], thresh: float) -> List[List[float]]:
+        """
+        Greedy 1D clustering: split when gap > thresh.
+        vals must be sorted.
+        """
+        if not vals: return []
+        groups = [[vals[0]]]
+        for v in vals[1:]:
+            if abs(v - groups[-1][-1]) <= thresh:
+                groups[-1].append(v)
+            else:
+                groups.append([v])
+        return groups
+
+    # --------------------------------------------------------------------------
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+            data = await file.read()
+            tmp.write(data)
+            tmp_file_path = tmp.name
+
+        img = Image.open(tmp_file_path).convert("RGBA")
+        W,H = img.size
+        arr = np.array(img)
+        a = arr[...,3]
+        rgb = arr[...,:3]
+
+        # Build mask & crop to content
+        mask = to_mask_rgba(a, rgb)
+        ys, xs = np.where(mask > 0)
+        if len(xs) == 0:
+            cleanup(); raise HTTPException(status_code=422, detail="No foreground detected.")
+        left, right = int(xs.min()), int(xs.max())+1
+        top, bottom = int(ys.min()), int(ys.max())+1
+        core_mask = mask[top:bottom, left:right]
+        CW, CH = core_mask.shape[1], core_mask.shape[0]
+
+        boxes = find_components(core_mask)
+        # shift boxes to full-image coords
+        boxes = [(x+left, y+top, w, h) for (x,y,w,h) in boxes]
+
+        if not boxes:
+            cleanup(); raise HTTPException(status_code=422, detail="No sprites detected.")
+
+        # Centers & basic stats
+        centers = [(x + w/2.0, y + h/2.0) for (x,y,w,h) in boxes]
+        widths  = [w for (_,_,w,_) in boxes]
+        heights = [h for (_,_,_,h) in boxes]
+        med_w   = float(np.median(widths))
+        med_h   = float(np.median(heights))
+
+        # Guardrails
+        if med_w < MIN_TILE or med_h < MIN_TILE:
+            # if very small blobs, it’s probably noise
+            boxes = [b for b in boxes if b[2] >= MIN_TILE and b[3] >= MIN_TILE]
+            if not boxes:
+                cleanup(); raise HTTPException(status_code=422, detail="Detected tiles are too small.")
+
+        # ---- Group into rows by y-center proximity
+        ys_sorted = sorted([c[1] for c in centers])
+        row_thresh = max(4.0, ROW_JOIN_FACTOR * med_h)
+        row_groups_y = group_sorted(ys_sorted, row_thresh)
+
+        # Assign row index to each box by nearest row center
+        row_centers = [float(np.mean(g)) for g in row_groups_y]
+        def nearest_row_idx(yc: float) -> int:
+            return int(np.argmin([abs(yc - rc) for rc in row_centers]))
+
+        per_row: Dict[int, List[Tuple[float, Tuple[int,int,int,int]]]] = {}
+        for (c, b) in zip(centers, boxes):
+            r = nearest_row_idx(c[1])
+            per_row.setdefault(r, []).append((c[0], b))
+
+        # Sort each row by x and compute columns
+        col_counts = []
+        col_steps  = []
+        normalized_rows: List[List[Tuple[int,int,int,int]]] = []
+        for r in sorted(per_row.keys()):
+            row = sorted(per_row[r], key=lambda t: t[0])
+            normalized_rows.append([t[1] for t in row])
+            # x gaps between neighbors (tile pitch)
+            xs = [t[0] for t in row]
+            if len(xs) >= 2:
+                steps = [xs[i+1]-xs[i] for i in range(len(xs)-1)]
+                col_steps.extend(steps)
+            col_counts.append(len(row))
+
+        # Estimate rows/cols using medians across rows
+        rows = len(per_row)
+        cols = int(np.median(col_counts)) if col_counts else len(normalized_rows[0])
+
+        # If rows*cols differs from detected blob count a lot, try regrouping cols more loosely
+        if rows * cols < len(boxes) * 0.7:
+            # Loosen horizontal threshold and regroup
+            xs_all = sorted([c[0] for c in centers])
+            col_thresh = max(4.0, COL_JOIN_FACTOR * med_w)
+            col_groups_x = group_sorted(xs_all, col_thresh)
+            cols = max(cols, int(round(np.median([len(g) for g in col_groups_x]))))
+
+        # Tile pitch estimation (distance between cell centers)
+        pitch_x = float(np.median(col_steps)) if col_steps else med_w * 1.2
+        # Vertical pitch: distance between row centers
+        row_centers_sorted = sorted(row_centers)
+        row_gaps = [row_centers_sorted[i+1]-row_centers_sorted[i] for i in range(len(row_centers_sorted)-1)]
+        pitch_y = float(np.median(row_gaps)) if row_gaps else med_h * 1.2
+
+        # Tile size: use median bbox size; you can expand to pitch if you expect fixed cells
+        tile_w = int(round(max(med_w, MIN_TILE)))
+        tile_h = int(round(max(med_h, MIN_TILE)))
+
+        # Clamp and sanity-check
+        total = rows * cols
+        if total > MAX_FRAMES:
+            scale = math.sqrt(total / MAX_FRAMES)
+            rows = max(1, int(round(rows / scale)))
+            cols = max(1, int(round(cols / scale)))
+            total = rows * cols
+
+        # Confidence: how regular the grid is (low spread in sizes and pitches, and fill ratio)
+        size_spread = (np.std(widths)/ (np.mean(widths)+1e-6) + np.std(heights)/(np.mean(heights)+1e-6)) * 0.5
+        pitch_spread = (np.std(col_steps)/(np.mean(col_steps)+1e-6) if col_steps else 0.5) \
+                       + (np.std(row_gaps)/(np.mean(row_gaps)+1e-6) if row_gaps else 0.5)
+        size_term = max(0.0, 1.0 - min(1.0, size_spread))
+        pitch_term = max(0.0, 1.0 - min(1.0, pitch_spread))
+        fill_term = min(1.0, len(boxes) / max(1, rows*cols))
+        confidence = round(0.15 + 0.45*size_term + 0.25*pitch_term + 0.15*fill_term, 3)
+
+        # Per-frame boxes (sorted row-major by y then x)
+        out_boxes = []
+        for r in sorted(per_row.keys()):
+            row = sorted(per_row[r], key=lambda t: t[0])
+            out_boxes.extend([tuple(map(int, b)) for (_, b) in row])
+
+        result = {
+            "spritesheet_size": f"{W}x{H}",
+            "best_guess": {
+                "grid": f"{cols}x{rows}",
+                "frame_size": f"{tile_w}x{tile_h}",
+                "total_frames": int(rows*cols),
+                "detected_sprites": len(boxes),
+                "confidence": float(min(1.0, max(0.0, confidence))),
+            },
+            "diagnostics": {
+                "content_crop": {"x": int(left), "y": int(top), "w": int(CW), "h": int(CH)},
+                "median_bbox": {"w": tile_w, "h": tile_h},
+                "median_pitch": {"x": int(round(pitch_x)), "y": int(round(pitch_y))},
+                "rows_detected": rows,
+                "cols_detected": cols,
+            },
+            # For preview/cropping; each: [x,y,w,h] in original image coords
+            "boxes_row_major": out_boxes[:MAX_FRAMES],
+        }
+        return result
+
+    except HTTPException:
+        cleanup(); raise
+    except Exception as e:
+        cleanup(); raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cleanup()
 
 
 @api.post("/remove")
@@ -218,14 +424,20 @@ async def process_spritesheet_all_models(
         raise HTTPException(status_code=400, detail="No file uploaded")
 
     try:
-        # Parse grid (e.g., "5x2")
-        if "x" not in grid:
+        # Parse grid (e.g., "5x2" or "auto")
+        if grid == "auto":
+            # Auto-detect grid based on spritesheet dimensions
+            # This is a simplified approach - in practice you might want more sophisticated detection
+            cols = 5  # Default fallback
+            rows = 2
+            logger.info(f"   Using auto-detected grid: {cols}x{rows}")
+        elif "x" not in grid:
             logger.error("❌ Invalid grid format")
             raise HTTPException(
-                status_code=400, detail="Grid must be in format 'colsxrows' (e.g., '5x2')"
+                status_code=400, detail="Grid must be in format 'colsxrows' (e.g., '5x2') or 'auto'"
             )
-
-        cols, rows = map(int, grid.split("x"))
+        else:
+            cols, rows = map(int, grid.split("x"))
         logger.info(f"   Parsed grid: {cols} columns x {rows} rows")
 
         # Save uploaded file temporarily
@@ -1074,5 +1286,278 @@ async def process_gif_to_spritesheet(
             pass
 
 
-def serve(host: str = "127.0.0.1", port: int = 8000):
+@api.post("/extract/gif-frames")
+async def extract_gif_frames_endpoint(
+    file: UploadFile = File(...),
+    grid: str = Form("auto"),
+    frames: int | None = Form(None),
+):
+    """Extract frames from GIF without background removal for user selection."""
+    logger.info("🖼️ GIF FRAMES EXTRACTION REQUEST STARTED")
+    logger.info(f"   File: {file.filename} ({file.size} bytes)")
+    logger.info(f"   Grid: {grid}, Frames: {frames}")
+
+    if not file:
+        logger.error("❌ No file uploaded")
+        raise HTTPException(status_code=400, detail="No file uploaded")
+
+    try:
+        # Save uploaded file temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".gif") as tmp_file:
+            content = await file.read()
+            tmp_file.write(content)
+            tmp_file_path = Path(tmp_file.name)
+
+        logger.info(f"   File saved to: {tmp_file_path}")
+
+        # Extract frames from GIF
+        from .video import extract_gif_frames
+        from . import remove_bytes
+        
+        # For frame extraction, we want ALL frames, not limited by the frames parameter
+        # The frames parameter is used for grid calculation, not frame limiting
+        extracted_frames = extract_gif_frames(tmp_file_path, max_frames=None)
+        logger.info(f"   Extracted {len(extracted_frames)} frames")
+        
+        # Pre-process all frames with the recommended model (isnet-general-use)
+        logger.info("   Pre-processing frames with recommended model...")
+        processed_frames = []
+        for i, frame in enumerate(extracted_frames):
+            try:
+                # Convert PIL Image to bytes
+                import io
+                img_buffer = io.BytesIO()
+                frame.save(img_buffer, format="PNG")
+                frame_bytes = img_buffer.getvalue()
+                
+                # Process with recommended model
+                processed_bytes = remove_bytes(frame_bytes, model_name="isnet-general-use")
+                
+                # Convert back to PIL Image
+                processed_frame = Image.open(io.BytesIO(processed_bytes)).convert("RGBA")
+                processed_frames.append(processed_frame)
+                
+                if (i + 1) % 5 == 0:  # Log progress every 5 frames
+                    logger.info(f"   Processed {i + 1}/{len(extracted_frames)} frames")
+                    
+            except Exception as e:
+                logger.warning(f"   Failed to process frame {i + 1}: {e}")
+                # Use original frame if processing fails
+                processed_frames.append(frame)
+        
+        logger.info(f"   ✅ Pre-processed {len(processed_frames)} frames with isnet-general-use")
+
+        # Auto-detect grid if needed
+        if grid == "auto":
+            # Simple auto-detection: try to make a square-ish grid
+            num_frames = len(extracted_frames)
+            cols = int(math.ceil(math.sqrt(num_frames)))
+            rows = int(math.ceil(num_frames / cols))
+            grid = f"{cols}x{rows}"
+            logger.info(f"   Auto-detected grid: {grid}")
+        elif frames and frames > 0:
+            # If frames parameter is provided, use it to suggest a grid layout
+            # but still extract all frames
+            cols = int(math.ceil(math.sqrt(frames)))
+            rows = int(math.ceil(frames / cols))
+            suggested_grid = f"{cols}x{rows}"
+            logger.info(f"   Suggested grid for {frames} frames: {suggested_grid}")
+
+        # Parse grid
+        try:
+            cols, rows = map(int, grid.split("x"))
+        except ValueError:
+            logger.error("❌ Invalid grid format")
+            raise HTTPException(
+                status_code=400, detail="Grid must be in format 'colsxrows' (e.g., '5x2')"
+            )
+
+        # Prepare frames for response (convert to base64)
+        # Return both original and processed frames
+        frame_data = []
+        for i, (original_frame, processed_frame) in enumerate(zip(extracted_frames, processed_frames)):
+            # Convert original frame to bytes
+            import io
+            orig_buffer = io.BytesIO()
+            original_frame.save(orig_buffer, format="PNG")
+            orig_bytes = orig_buffer.getvalue()
+            
+            # Convert processed frame to bytes
+            proc_buffer = io.BytesIO()
+            processed_frame.save(proc_buffer, format="PNG")
+            proc_bytes = proc_buffer.getvalue()
+            
+            frame_data.append({
+                "index": i,
+                "data": base64.b64encode(proc_bytes).decode("utf-8"),  # Show processed by default
+                "original_data": base64.b64encode(orig_bytes).decode("utf-8"),  # Store original
+                "size": len(proc_bytes),
+                "width": processed_frame.width,
+                "height": processed_frame.height,
+                "processed": True,  # Mark as pre-processed
+                "model": "isnet-general-use"  # Show which model was used
+            })
+
+        # Clean up
+        tmp_file_path.unlink()
+
+        logger.info("✅ GIF FRAMES EXTRACTION COMPLETED")
+        return {
+            "success": True,
+            "filename": file.filename,
+            "grid": grid,
+            "cols": cols,
+            "rows": rows,
+            "total_frames": len(extracted_frames),
+            "frames": frame_data
+        }
+
+    except Exception as e:
+        logger.error(f"❌ GIF FRAMES EXTRACTION FAILED: {e}")
+        # Clean up on error
+        try:
+            if "tmp_file_path" in locals() and tmp_file_path.exists():
+                tmp_file_path.unlink()
+        except:
+            pass
+        raise HTTPException(status_code=500, detail=f"Frame extraction failed: {str(e)}")
+
+
+@api.post("/process/frames-with-model")
+async def process_frames_with_model_endpoint(
+    frames_data: str = Form(...),  # JSON string of frame data
+    model: str = Form("isnet-general-use"),
+    grid: str = Form(...),
+):
+    """Process extracted frames with selected background removal model."""
+    logger.info("🎨 FRAMES PROCESSING REQUEST STARTED")
+    logger.info(f"   Model: {model}")
+    logger.info(f"   Grid: {grid}")
+
+    try:
+        import json
+        
+        # Parse frames data
+        frames = json.loads(frames_data)
+        logger.info(f"   Processing {len(frames)} frames")
+
+        # Parse grid
+        cols, rows = map(int, grid.split("x"))
+
+        # Process each frame
+        processed_frames = []
+        for frame_info in frames:
+            try:
+                # Decode base64 frame data
+                frame_bytes = base64.b64decode(frame_info["data"])
+                
+                # Process with background removal
+                processed_bytes = remove_bytes(frame_bytes, model_name=model)
+                
+                # Convert back to base64
+                processed_data = base64.b64encode(processed_bytes).decode("utf-8")
+                
+                processed_frames.append({
+                    "index": frame_info["index"],
+                    "data": processed_data,
+                    "size": len(processed_bytes),
+                    "width": frame_info["width"],
+                    "height": frame_info["height"]
+                })
+                
+            except Exception as e:
+                logger.error(f"   Failed to process frame {frame_info['index']}: {e}")
+                processed_frames.append({
+                    "index": frame_info["index"],
+                    "error": str(e),
+                    "original_data": frame_info["data"]  # Keep original if processing fails
+                })
+
+        logger.info("✅ FRAMES PROCESSING COMPLETED")
+        return {
+            "success": True,
+            "model": model,
+            "grid": grid,
+            "processed_frames": processed_frames
+        }
+
+    except Exception as e:
+        logger.error(f"❌ FRAMES PROCESSING FAILED: {e}")
+        raise HTTPException(status_code=500, detail=f"Frame processing failed: {str(e)}")
+
+
+@api.post("/reconstruct/spritesheet")
+async def reconstruct_spritesheet_endpoint(
+    frames_data: str = Form(...),  # JSON string of processed frame data
+    grid: str = Form(...),
+    filename: str = Form("reconstructed_spritesheet"),
+):
+    """Reconstruct spritesheet from processed frames."""
+    logger.info("🔧 SPRITESHEET RECONSTRUCTION REQUEST STARTED")
+    logger.info(f"   Grid: {grid}")
+    logger.info(f"   Filename: {filename}")
+
+    try:
+        import json
+        
+        # Parse frames data
+        frames = json.loads(frames_data)
+        logger.info(f"   Reconstructing from {len(frames)} frames")
+
+        # Parse grid
+        cols, rows = map(int, grid.split("x"))
+
+        # Convert frames back to PIL Images
+        pil_frames = []
+        for frame_info in frames:
+            if "error" in frame_info:
+                # Use original data if processing failed
+                frame_bytes = base64.b64decode(frame_info["original_data"])
+            else:
+                frame_bytes = base64.b64decode(frame_info["data"])
+            
+            from PIL import Image
+            import io
+            img = Image.open(io.BytesIO(frame_bytes))
+            pil_frames.append(img)
+
+        # Create spritesheet
+        from .cli import _create_spritesheet
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_file:
+            spritesheet_path = Path(tmp_file.name)
+        
+        _create_spritesheet(pil_frames, cols, rows, spritesheet_path)
+        
+        # Read the spritesheet and return as base64
+        with open(spritesheet_path, "rb") as f:
+            spritesheet_bytes = f.read()
+        
+        spritesheet_data = base64.b64encode(spritesheet_bytes).decode("utf-8")
+        
+        # Clean up
+        spritesheet_path.unlink()
+
+        logger.info("✅ SPRITESHEET RECONSTRUCTION COMPLETED")
+        return {
+            "success": True,
+            "filename": f"{filename}.png",
+            "data": spritesheet_data,
+            "size": len(spritesheet_bytes),
+            "grid": grid,
+            "frames_used": len(pil_frames)
+        }
+
+    except Exception as e:
+        logger.error(f"❌ SPRITESHEET RECONSTRUCTION FAILED: {e}")
+        # Clean up on error
+        try:
+            if "spritesheet_path" in locals() and spritesheet_path.exists():
+                spritesheet_path.unlink()
+        except:
+            pass
+        raise HTTPException(status_code=500, detail=f"Spritesheet reconstruction failed: {str(e)}")
+
+
+def serve(host: str = "127.0.0.1", port: int = 8002):
     uvicorn.run(api, host=host, port=port)

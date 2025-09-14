@@ -15,6 +15,13 @@ export default function HomePage() {
         </p>
         <div className="flex gap-4 justify-center flex-wrap">
           <Link
+            href="/pipeline"
+            className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-8 py-3 rounded-lg font-semibold transition-colors flex items-center gap-2 shadow-lg"
+          >
+            <Zap className="w-5 h-5" />
+            Smart Pipeline
+          </Link>
+          <Link
             href="/upload"
             className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-semibold transition-colors flex items-center gap-2"
           >
@@ -47,6 +54,16 @@ export default function HomePage() {
 
       {/* Features Grid */}
       <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8 mb-16">
+        <div className="bg-gradient-to-br from-blue-50 to-purple-50 p-6 rounded-lg shadow-sm border border-blue-200">
+          <div className="w-12 h-12 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg flex items-center justify-center mb-4">
+            <Zap className="w-6 h-6 text-white" />
+          </div>
+          <h3 className="text-lg font-semibold mb-2">Smart Pipeline</h3>
+          <p className="text-gray-600">
+            Upload any media type and automatically process through the complete pipeline with intelligent step skipping.
+          </p>
+        </div>
+
         <div className="bg-white p-6 rounded-lg shadow-sm border">
           <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
             <Upload className="w-6 h-6 text-blue-600" />
@@ -111,7 +128,20 @@ export default function HomePage() {
       {/* Quick Start */}
       <div className="bg-white rounded-lg shadow-sm border p-8">
         <h2 className="text-2xl font-bold mb-6">Quick Start</h2>
-        <div className="grid md:grid-cols-2 gap-8">
+        <div className="grid md:grid-cols-3 gap-8">
+          <div>
+            <h3 className="text-lg font-semibold mb-4 flex items-center">
+              <Zap className="w-5 h-5 mr-2 text-blue-600" />
+              Smart Pipeline (Recommended)
+            </h3>
+            <ol className="space-y-2 text-gray-600">
+              <li>1. Click "Smart Pipeline" above</li>
+              <li>2. Upload any media (video, GIF, image)</li>
+              <li>3. Pipeline automatically detects type and skips unnecessary steps</li>
+              <li>4. Follow the guided process to your desired output</li>
+              <li>5. Download your processed media</li>
+            </ol>
+          </div>
           <div>
             <h3 className="text-lg font-semibold mb-4">For Single Images</h3>
             <ol className="space-y-2 text-gray-600">

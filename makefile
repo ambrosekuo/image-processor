@@ -18,7 +18,7 @@ run:
 	. .venv/bin/activate; sprite-processor --help
 
 api:
-	. .venv/bin/activate; sprite-processor-api --host 0.0.0.0 --port 8000
+	. .venv/bin/activate; sprite-processor-api --host 0.0.0.0 --port 8002
 
 fmt:
 	. .venv/bin/activate; black src tests

@@ -10,5 +10,5 @@ COPY src ./src
 
 RUN pip install -U pip && pip install -e ".[dev]"
 
-EXPOSE 8000
-CMD ["bgremove-api", "--host", "0.0.0.0", "--port", "8000"]
+EXPOSE 8002
+CMD ["bgremove-api", "--host", "0.0.0.0", "--port", "8002"]

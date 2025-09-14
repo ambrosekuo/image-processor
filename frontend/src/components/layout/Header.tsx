@@ -2,10 +2,11 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Palette, Upload, Grid, FolderOpen, Video, Image } from 'lucide-react'
+import { Palette, Upload, Grid, FolderOpen, Video, Image, Zap } from 'lucide-react'
 
 const navigation = [
     { name: 'Home', href: '/', icon: Palette },
+    { name: 'Pipeline', href: '/pipeline', icon: Zap },
     { name: 'Upload', href: '/upload', icon: Upload },
     { name: 'Spritesheet', href: '/spritesheet', icon: Grid },
     { name: 'GIF to Spritesheet', href: '/gif-to-spritesheet', icon: Image },

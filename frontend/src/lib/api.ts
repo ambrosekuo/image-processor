@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8002'
 
 console.log('API_BASE_URL:', API_BASE_URL) // Debug log
 
@@ -279,6 +279,15 @@ export const apiClient = {
         formData.append('file', file)
 
         const response = await api.post('/analyze/video', formData)
+        return response.data
+    },
+
+    // Spritesheet analysis
+    async analyzeSpritesheet(file: File): Promise<any> {
+        const formData = new FormData()
+        formData.append('file', file)
+
+        const response = await api.post('/analyze-spritesheet', formData)
         return response.data
     },
 

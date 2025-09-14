@@ -20,7 +20,7 @@ bgremove batch input_dir/ output_dir/
 bgremove watch input_dir/ output_dir/
 
 # API server
-bgremove-api --host 0.0.0.0 --port 8000
+bgremove-api --host 0.0.0.0 --port 8002
 ```
 
 ## Common Use Cases
@@ -120,11 +120,11 @@ bgremove watch drop_folder/ processed_assets/
 
 ```bash
 # Health check
-curl http://localhost:8000/health
+curl http://localhost:8002/health
 
 # Process image
 curl -X POST -F "file=@image.jpg" \
-  http://localhost:8000/remove -o output.png
+  http://localhost:8002/remove -o output.png
 ```
 
 ### Python API Client
@@ -135,7 +135,7 @@ import requests
 # Process an image via API
 with open('image.jpg', 'rb') as f:
     response = requests.post(
-        'http://localhost:8000/remove',
+        'http://localhost:8002/remove',
         files={'file': f}
     )
 
@@ -188,7 +188,7 @@ bgremove spritesheet sheet.png output/ \
 pip install python-multipart
 
 # Check if port is available
-lsof -i :8000
+lsof -i :8002
 ```
 
 ### Getting Help
@@ -219,11 +219,11 @@ bgremove spritesheet character.png frames/ \
   --frame-width 64 --frame-height 64
 
 # 3. Start API server
-bgremove-api --host 0.0.0.0 --port 8000 &
+bgremove-api --host 0.0.0.0 --port 8002 &
 
 # 4. Test API
 curl -X POST -F "file=@test.jpg" \
-  http://localhost:8000/remove -o test_output.png
+  http://localhost:8002/remove -o test_output.png
 ```
 
 ### Integration with Game Engines
