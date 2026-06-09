@@ -102,7 +102,7 @@ class TestRemoveFile:
         """Test remove_bytes with invalid model name."""
         with patch("sprite_processor.new_session") as mock_session:
             mock_session.side_effect = Exception("Invalid model name")
-            
+
             with pytest.raises(Exception, match="Invalid model name"):
                 remove_bytes(sample_image_bytes, model_name="invalid-model")
 
@@ -113,7 +113,7 @@ class TestRemoveFile:
 
         with patch("sprite_processor.new_session") as mock_session:
             mock_session.side_effect = Exception("Invalid model name")
-            
+
             with pytest.raises(Exception, match="Invalid model name"):
                 remove_file(str(test_file), model_name="invalid-model")
 
@@ -121,8 +121,10 @@ class TestRemoveFile:
         """Test remove_bytes with unsupported image format."""
         # Create a fake BMP file (unsupported format)
         bmp_data = b"BM\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-        
-        with patch("sprite_processor.new_session", return_value=mock_rembg_session("isnet-general-use")):
+
+        with patch(
+            "sprite_processor.new_session", return_value=mock_rembg_session("isnet-general-use")
+        ):
             with pytest.raises(Exception):
                 remove_bytes(bmp_data)
 
@@ -132,8 +134,8 @@ class TestRemoveFile:
         test_file = temp_dir / "test.bmp"
         test_file.write_bytes(b"BM\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
 
-        with patch("sprite_processor.new_session", return_value=mock_rembg_session("isnet-general-use")):
+        with patch(
+            "sprite_processor.new_session", return_value=mock_rembg_session("isnet-general-use")
+        ):
             with pytest.raises(Exception):
                 remove_file(str(test_file))
-
-

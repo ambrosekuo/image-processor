@@ -6,9 +6,11 @@ import { Upload, Image as ImageIcon } from 'lucide-react'
 
 interface FileUploadProps {
     onFileSelect: (file: File) => void
+    accept?: Record<string, string[]>
+    hint?: string
 }
 
-export function FileUpload({ onFileSelect }: FileUploadProps) {
+export function FileUpload({ onFileSelect, accept, hint }: FileUploadProps) {
     const onDrop = useCallback((acceptedFiles: File[]) => {
         if (acceptedFiles[0]) {
             onFileSelect(acceptedFiles[0])
@@ -17,7 +19,7 @@ export function FileUpload({ onFileSelect }: FileUploadProps) {
 
     const { getRootProps, getInputProps, isDragActive } = useDropzone({
         onDrop,
-        accept: {
+        accept: accept ?? {
             'image/*': ['.png', '.jpg', '.jpeg', '.webp']
         },
         multiple: false
@@ -55,7 +57,7 @@ export function FileUpload({ onFileSelect }: FileUploadProps) {
                 </div>
 
                 <div className="text-xs text-gray-400">
-                    Supports PNG, JPG, JPEG, WEBP (max 10MB)
+                    {hint ?? 'Supports PNG, JPG, JPEG, WEBP (max 10MB)'}
                 </div>
             </div>
         </div>

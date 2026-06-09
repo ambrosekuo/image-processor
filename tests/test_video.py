@@ -12,7 +12,6 @@ from sprite_processor.video import analyze_video, video_to_gif, video_to_sprites
 class TestVideoToGif:
     """Test the video_to_gif function."""
 
-
     def test_video_to_gif_with_resize(self, temp_dir, sample_video_file):
         """Test video to GIF conversion with resizing."""
         output_path = temp_dir / "output.gif"
@@ -80,7 +79,6 @@ class TestVideoToGif:
 class TestVideoToSpritesheet:
     """Test the video_to_spritesheet function."""
 
-
     def test_video_to_spritesheet_auto_grid(self, temp_dir, sample_video_file):
         """Test video to spritesheet with automatic grid calculation."""
         output_path = temp_dir / "output.png"
@@ -109,7 +107,7 @@ class TestVideoToSpritesheet:
 
             # Mock the extracted frames
             mock_frames = []
-            for i in range(12):
+            for _i in range(12):
                 mock_frame = MagicMock()
                 mock_frame.size = (640, 360)
                 mock_frames.append(mock_frame)
@@ -212,8 +210,8 @@ class TestExtractGifFrames:
 
     def test_extract_gif_frames_basic(self, temp_dir, sample_gif):
         """Test basic GIF frame extraction."""
+
         from sprite_processor.video import extract_gif_frames
-        from pathlib import Path
 
         # Create a temporary GIF file
         gif_path = temp_dir / "test.gif"
@@ -227,15 +225,15 @@ class TestExtractGifFrames:
             assert len(frames) >= 1
             # Each frame should be a PIL Image
             for frame in frames:
-                assert hasattr(frame, 'size')
+                assert hasattr(frame, "size")
         except Exception:
             # If the function fails due to mocking issues, that's acceptable for this test
             pass
 
     def test_extract_gif_frames_max_frames_limit(self, temp_dir, sample_gif):
         """Test GIF frame extraction with max_frames limit."""
+
         from sprite_processor.video import extract_gif_frames
-        from pathlib import Path
 
         # Create a temporary GIF file
         gif_path = temp_dir / "test.gif"
@@ -287,7 +285,7 @@ class TestVideoToSpritesheetReal:
 
             # Mock realistic frame extraction
             mock_frames = []
-            for i in range(8):  # 8 frames
+            for _i in range(8):  # 8 frames
                 mock_frame = MagicMock()
                 mock_frame.size = (320, 240)
                 mock_frames.append(mock_frame)
@@ -344,7 +342,7 @@ class TestVideoToSpritesheetReal:
 
             # Mock 12 frames for auto grid calculation
             mock_frames = []
-            for i in range(12):
+            for _i in range(12):
                 mock_frame = MagicMock()
                 mock_frame.size = (400, 300)
                 mock_frames.append(mock_frame)
@@ -374,5 +372,3 @@ class TestVideoToSpritesheetReal:
             )
 
             mock_create_spritesheet.assert_called_once()
-
-

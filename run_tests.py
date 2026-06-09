@@ -15,7 +15,8 @@ def run_tests(test_type="all", verbose=True, coverage=False, parallel=False):
     Run tests with the specified configuration.
 
     Args:
-        test_type: Type of tests to run ('all', 'unit', 'integration', 'api', 'core', 'video', 'pipeline', 'cli')
+        test_type: Type of tests to run ('all', 'unit', 'integration', 'api',
+            'core', 'video', 'pipeline', 'cli')
         verbose: Whether to run tests in verbose mode
         coverage: Whether to run with coverage reporting
         parallel: Whether to run tests in parallel

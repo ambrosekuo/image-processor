@@ -50,8 +50,6 @@ class TestVideoPipelineConfig:
 class TestProcessVideoPipeline:
     """Test the process_video_pipeline function."""
 
-
-
     def test_process_video_pipeline_video_error(self, temp_dir, sample_video_file):
         """Test video pipeline processing with video processing error."""
         output_dir = temp_dir / "output"
@@ -112,7 +110,14 @@ class TestProcessVideoPipelineAllModels:
             (output_dir / "test_video.gif").touch()
             (output_dir / "test_video_spritesheet.png").touch()
             # Create files for each model
-            for model in ["isnet-general-use", "u2net_human_seg", "u2net", "u2netp", "u2net_cloth_seg", "silueta"]:
+            for model in [
+                "isnet-general-use",
+                "u2net_human_seg",
+                "u2net",
+                "u2netp",
+                "u2net_cloth_seg",
+                "silueta",
+            ]:
                 (output_dir / f"test_video_{model}_processed.png").touch()
 
             config = VideoPipelineConfig(
@@ -127,7 +132,7 @@ class TestProcessVideoPipelineAllModels:
             assert len(result["model_results"]) > 0  # Should have results for multiple models
 
             # Check that each model was processed
-            for model_name, model_result in result["model_results"].items():
+            for _model_name, model_result in result["model_results"].items():
                 assert model_result["success"] is True
                 assert "path" in model_result
 
@@ -202,7 +207,7 @@ class TestProcessVideoPipelineAllModels:
 
             assert "model_results" in result
             # All models should have failed
-            for model_name, model_result in result["model_results"].items():
+            for _model_name, model_result in result["model_results"].items():
                 assert model_result["success"] is False
                 assert "error" in model_result
 
@@ -245,7 +250,3 @@ class TestVideoPipelineConfigValidation:
         config = VideoPipelineConfig(max_width=4096, max_height=4096)
         assert config.max_width == 4096
         assert config.max_height == 4096
-
-
-
-

@@ -37,6 +37,22 @@ export default function VideoPage() {
     const [reconstructedSpritesheet, setReconstructedSpritesheet] = useState<Blob | null>(null)
     const [reconstructedUrl, setReconstructedUrl] = useState<string | null>(null)
 
+    // Clothing extraction states
+    const [baseImage, setBaseImage] = useState<File | null>(null)
+    const [dressedImage, setDressedImage] = useState<File | null>(null)
+    const [extractedClothing, setExtractedClothing] = useState<Blob | null>(null)
+    const [extractedClothingUrl, setExtractedClothingUrl] = useState<string | null>(null)
+    const [isExtractingClothing, setIsExtractingClothing] = useState(false)
+    const [clothingThreshold, setClothingThreshold] = useState(5)
+
+    // Advanced alignment states
+    const [useAdvancedMode, setUseAdvancedMode] = useState(false)
+    const [autoAlign, setAutoAlign] = useState(true)
+    const [scaleFactor, setScaleFactor] = useState(1.0)
+    const [offsetX, setOffsetX] = useState(0)
+    const [offsetY, setOffsetY] = useState(0)
+    const [extractionRatio, setExtractionRatio] = useState<string | null>(null)
+
     // Per-frame model selection
     const [frameModels, setFrameModels] = useState<{ [key: number]: string }>({})
     const [processingMode, setProcessingMode] = useState<'all' | 'individual'>('individual')
@@ -48,6 +64,8 @@ export default function VideoPage() {
 
     const availableModels = [
         { id: 'isnet-general-use', name: 'ISNet General Use (Recommended)' },
+        { id: 'isnet-anime', name: 'ISNet Anime (Less Aggressive)' },
+        { id: 'bria-rmbg-1.4', name: 'BRIA RMBG-1.4 (High Quality)' },
         { id: 'u2net_human_seg', name: 'U2Net Human Segmentation' },
         { id: 'u2net', name: 'U2Net' },
         { id: 'u2netp', name: 'U2NetP (Lightweight)' },
@@ -258,7 +276,7 @@ export default function VideoPage() {
                 } else {
                     initialFrameModels[frame.index] = selectedModel
                     initialStatus[frame.index] = 'pending'
-                    initialShowProcessed[frame.index] = false // Show original by default
+                    initialShowProcessed[frame.index] = true // Show processed by default even for non-preprocessed
                 }
             })
 
@@ -403,6 +421,12 @@ export default function VideoPage() {
                 [frameIndex]: data.processed_frames[0]
             }))
 
+            // Show processed version by default
+            setShowProcessed(prev => ({
+                ...prev,
+                [frameIndex]: true
+            }))
+
             // Update status to completed
             setFrameProcessingStatus(prev => ({
                 ...prev,
@@ -478,11 +502,11 @@ export default function VideoPage() {
         return extractedFrames.filter(frame => {
             const isSelected = selectedFrames[frame.index]
             const hasProcessed = individualProcessedFrames[frame.index]
-            const showProcessed = showProcessed[frame.index]
+            const shouldShowProcessed = showProcessed[frame.index]
 
             // If frame is selected and has processed version and user wants to show processed, use processed
             // Otherwise use original
-            return isSelected ? (hasProcessed && showProcessed ? individualProcessedFrames[frame.index] : frame) : null
+            return isSelected ? (hasProcessed && shouldShowProcessed ? individualProcessedFrames[frame.index] : frame) : null
         }).filter(Boolean)
     }
 
@@ -535,6 +559,72 @@ export default function VideoPage() {
             setError(`Spritesheet reconstruction failed: ${err}`)
         } finally {
             setIsReconstructing(false)
+        }
+    }
+
+    // Clothing extraction function
+    const extractClothing = async () => {
+        if (!baseImage || !dressedImage) {
+            setError("Please select both base and dressed images")
+            return
+        }
+
+        setIsExtractingClothing(true)
+        setError(null)
+        setExtractionRatio(null)
+
+        try {
+            const formData = new FormData()
+            formData.append('base_image', baseImage)
+            formData.append('dressed_image', dressedImage)
+            formData.append('threshold', clothingThreshold.toString())
+
+            let endpoint = 'http://localhost:8002/extract/clothing'
+
+            if (useAdvancedMode) {
+                endpoint = 'http://localhost:8002/extract/clothing-advanced'
+                formData.append('auto_align', autoAlign.toString())
+                formData.append('scale_factor', scaleFactor.toString())
+                formData.append('offset_x', offsetX.toString())
+                formData.append('offset_y', offsetY.toString())
+            }
+
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                body: formData
+            })
+
+            if (!response.ok) {
+                let errorMessage = "Clothing extraction failed"
+                try {
+                    const errorData = await response.json()
+                    errorMessage = errorData.detail || errorMessage
+                } catch (e) {
+                    errorMessage = `HTTP ${response.status}: ${response.statusText}`
+                }
+                throw new Error(errorMessage)
+            }
+
+            const blob = await response.blob()
+            setExtractedClothing(blob)
+
+            // Get extraction ratio from headers
+            const ratio = response.headers.get('X-Extraction-Ratio')
+            if (ratio) {
+                setExtractionRatio(ratio)
+            }
+
+            // Create URL for display
+            if (extractedClothingUrl) {
+                URL.revokeObjectURL(extractedClothingUrl)
+            }
+            const url = URL.createObjectURL(blob)
+            setExtractedClothingUrl(url)
+
+        } catch (err) {
+            setError(`Clothing extraction failed: ${err}`)
+        } finally {
+            setIsExtractingClothing(false)
         }
     }
 
@@ -923,7 +1013,7 @@ export default function VideoPage() {
                                     <div className="mb-6">
                                         <h3 className="text-lg font-medium text-gray-900 mb-3">Step 2: Process Individual Frames</h3>
                                         <p className="text-sm text-gray-600 mb-4">
-                                            Click on a frame to select it, choose a model, and process it individually. You can see the result immediately and try different models.
+                                            Click on a frame to select it, choose a model, and process it individually. All frames are selected by default - click to exclude unwanted frames.
                                         </p>
 
                                         {/* Global Model Selection */}
@@ -998,7 +1088,7 @@ export default function VideoPage() {
                                             Frame Processing & Selection ({extractedFrames.length} frames)
                                         </h3>
                                         <p className="text-sm text-gray-600 mb-4">
-                                            Click frames to process them. Toggle between original/processed views. Select which frames to include in the final spritesheet.
+                                            Click frames to process them. Toggle between original/processed views. All frames are included by default - click to exclude unwanted frames.
                                         </p>
 
                                         {/* Selected Frame Preview */}
@@ -1196,6 +1286,252 @@ export default function VideoPage() {
                                 </ol>
                             </div>
                         )}
+                    </div>
+                </div>
+
+                {/* Clothing Extraction Section */}
+                <div className="mb-8">
+                    <h2 className="text-2xl font-bold text-gray-900 mb-6">Clothing Extraction</h2>
+                    <p className="text-gray-600 mb-6">
+                        Extract clothing and accessories by subtracting the base character from the dressed character.
+                        Perfect for creating layered character assets.
+                    </p>
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                        <h4 className="font-medium text-blue-800 mb-2">✨ Improved Algorithm:</h4>
+                        <ul className="text-sm text-blue-700 space-y-1">
+                            <li>• <strong>Auto-alignment:</strong> Automatically scales and aligns different sized images</li>
+                            <li>• <strong>Manual alignment:</strong> Fine-tune scale and position for perfect alignment</li>
+                            <li>• <strong>Advanced detection:</strong> Uses difference detection and edge analysis</li>
+                            <li>• <strong>Real-time feedback:</strong> Shows extraction ratio to help optimize settings</li>
+                        </ul>
+                    </div>
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+                        <h4 className="font-medium text-yellow-800 mb-2">📋 Usage Tips:</h4>
+                        <ul className="text-sm text-yellow-700 space-y-1">
+                            <li>• Base image: Character without clothing/accessories</li>
+                            <li>• Dressed image: Same character with clothing/accessories</li>
+                            <li>• Images should be roughly the same size and position</li>
+                            <li>• Lower threshold = more detail, higher threshold = less noise</li>
+                        </ul>
+                    </div>
+
+                    {/* Mode Selection */}
+                    <div className="mb-6">
+                        <div className="flex items-center space-x-4">
+                            <label className="flex items-center">
+                                <input
+                                    type="radio"
+                                    name="extractionMode"
+                                    checked={!useAdvancedMode}
+                                    onChange={() => setUseAdvancedMode(false)}
+                                    className="mr-2"
+                                />
+                                <span className="font-medium">Simple Mode (Auto-alignment)</span>
+                            </label>
+                            <label className="flex items-center">
+                                <input
+                                    type="radio"
+                                    name="extractionMode"
+                                    checked={useAdvancedMode}
+                                    onChange={() => setUseAdvancedMode(true)}
+                                    className="mr-2"
+                                />
+                                <span className="font-medium">Advanced Mode (Manual alignment)</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    {/* Advanced Controls */}
+                    {useAdvancedMode && (
+                        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
+                            <h4 className="font-medium text-gray-800 mb-4">🔧 Manual Alignment Controls</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="flex items-center mb-2">
+                                        <input
+                                            type="checkbox"
+                                            checked={autoAlign}
+                                            onChange={(e) => setAutoAlign(e.target.checked)}
+                                            className="mr-2"
+                                        />
+                                        <span className="text-sm font-medium">Auto-align images</span>
+                                    </label>
+                                    <p className="text-xs text-gray-600">Automatically resize images to match the larger one</p>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Scale Factor: {scaleFactor.toFixed(2)}</label>
+                                    <input
+                                        type="range"
+                                        min="0.5"
+                                        max="2.0"
+                                        step="0.05"
+                                        value={scaleFactor}
+                                        onChange={(e) => setScaleFactor(parseFloat(e.target.value))}
+                                        className="w-full"
+                                        disabled={autoAlign}
+                                    />
+                                    <p className="text-xs text-gray-600">Scale the base image (1.0 = original size)</p>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">X Offset: {offsetX}px</label>
+                                    <input
+                                        type="range"
+                                        min="-200"
+                                        max="200"
+                                        step="5"
+                                        value={offsetX}
+                                        onChange={(e) => setOffsetX(parseInt(e.target.value))}
+                                        className="w-full"
+                                        disabled={autoAlign}
+                                    />
+                                    <p className="text-xs text-gray-600">Move base image left/right</p>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Y Offset: {offsetY}px</label>
+                                    <input
+                                        type="range"
+                                        min="-200"
+                                        max="200"
+                                        step="5"
+                                        value={offsetY}
+                                        onChange={(e) => setOffsetY(parseInt(e.target.value))}
+                                        className="w-full"
+                                        disabled={autoAlign}
+                                    />
+                                    <p className="text-xs text-gray-600">Move base image up/down</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Input Images */}
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Base Character (without clothing)
+                                </label>
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={(e) => setBaseImage(e.target.files?.[0] || null)}
+                                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                />
+                                {baseImage && (
+                                    <div className="mt-2">
+                                        <img
+                                            src={URL.createObjectURL(baseImage)}
+                                            alt="Base character"
+                                            className="w-full h-32 object-cover rounded border border-gray-200"
+                                        />
+                                    </div>
+                                )}
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Dressed Character (with clothing)
+                                </label>
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={(e) => setDressedImage(e.target.files?.[0] || null)}
+                                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                />
+                                {dressedImage && (
+                                    <div className="mt-2">
+                                        <img
+                                            src={URL.createObjectURL(dressedImage)}
+                                            alt="Dressed character"
+                                            className="w-full h-32 object-cover rounded border border-gray-200"
+                                        />
+                                    </div>
+                                )}
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Transparency Threshold: {clothingThreshold}
+                                </label>
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="255"
+                                    value={clothingThreshold}
+                                    onChange={(e) => setClothingThreshold(parseInt(e.target.value))}
+                                    className="w-full"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">
+                                    Lower values keep more details, higher values remove more noise
+                                </p>
+                            </div>
+
+                            {/* Extraction Ratio Display */}
+                            {extractionRatio && (
+                                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                                    <div className="flex items-center">
+                                        <div className="text-green-600 mr-2">📊</div>
+                                        <div>
+                                            <p className="text-sm font-medium text-green-800">
+                                                Extraction Ratio: {extractionRatio}
+                                            </p>
+                                            <p className="text-xs text-green-600">
+                                                Higher ratio = more clothing detected
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            <button
+                                onClick={extractClothing}
+                                disabled={!baseImage || !dressedImage || isExtractingClothing}
+                                className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center"
+                            >
+                                {isExtractingClothing ? (
+                                    <>
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                        Extracting Clothing...
+                                    </>
+                                ) : (
+                                    'Extract Clothing'
+                                )}
+                            </button>
+                        </div>
+
+                        {/* Result */}
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Extracted Clothing
+                            </label>
+                            {extractedClothingUrl ? (
+                                <div className="space-y-4">
+                                    <img
+                                        src={extractedClothingUrl}
+                                        alt="Extracted clothing"
+                                        className="w-full h-64 object-cover rounded border border-gray-200 bg-gray-50"
+                                    />
+                                    <button
+                                        onClick={() => {
+                                            const link = document.createElement('a')
+                                            link.href = extractedClothingUrl
+                                            link.download = 'extracted_clothing.png'
+                                            link.click()
+                                        }}
+                                        className="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                                    >
+                                        Download Extracted Clothing
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="w-full h-64 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50">
+                                    <p className="text-gray-500">Extracted clothing will appear here</p>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>

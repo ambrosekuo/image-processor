@@ -129,7 +129,7 @@ npm run dev
    - **Dual Data**: Each frame includes both original and processed versions
 
 2. **Frame Grid**: Browse through all extracted frames
-   - **Status Indicators**: 
+   - **Status Indicators**:
      - 🟢 Green dots: Frame selected for spritesheet
      - 🔵 Blue dots: Showing processed version
    - **Click Frames**: Click any frame for detailed view
@@ -137,7 +137,7 @@ npm run dev
 ### 4. Individual Frame Processing
 
 1. **Select Frame**: Click any frame in the grid to see it in detail
-2. **Side-by-Side Comparison**: 
+2. **Side-by-Side Comparison**:
    - **Left**: Original frame (with background)
    - **Right**: Processed frame (background removed)
 3. **Model Selection**: Choose different AI models for individual frames:

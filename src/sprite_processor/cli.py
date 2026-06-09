@@ -35,18 +35,12 @@ def _process_one(
     in_path = Path(in_path)
     if not in_path.exists():
         raise FileNotFoundError(in_path)
-
-    # Auto-generate output path if not provided
     if out_path is None:
         out_path = in_path.with_suffix(".png")
     else:
         out_path = Path(out_path)
-
-    # Check for existing output file
-    if out_path.exists() and not overwrite:
+    if out_path.exists() and (not overwrite):
         raise FileExistsError(f"Output exists (use --overwrite): {out_path}")
-
-    # Read image bytes and process through rembg with specified model
     img = in_path.read_bytes()
     cut = remove_bytes(img, model_name=model_name)
     out_path.write_bytes(cut)
@@ -103,7 +97,6 @@ class _WatchHandler(FileSystemEventHandler):
         """Initialize the watch handler with output directory and overwrite setting."""
         self.out_dir = out_dir
         self.overwrite = overwrite
-        # Supported image file extensions
         self.exts = {".png", ".jpg", ".jpeg", ".webp"}
 
     def on_created(self, event):
@@ -122,14 +115,9 @@ class _WatchHandler(FileSystemEventHandler):
             path_str: Path to the file to potentially process
         """
         p = Path(path_str)
-
-        # Skip directories and unsupported file types
         if p.is_dir() or p.suffix.lower() not in self.exts:
             return
-
-        # Generate output path
         out = self.out_dir / (p.stem + ".png")
-
         try:
             _process_one(p, out, self.overwrite)
             print(f"[watch] Saved: {out}")
@@ -153,35 +141,20 @@ def _create_spritesheet(frames: list[Image.Image], cols: int, rows: int, output_
     """
     if not frames:
         raise ValueError("No frames provided for spritesheet creation")
-
-    # Get frame dimensions from the first frame
     frame_width, frame_height = frames[0].size
-
-    # Calculate spritesheet dimensions
     spritesheet_width = cols * frame_width
     spritesheet_height = rows * frame_height
-
-    # Create the spritesheet canvas
     spritesheet = Image.new("RGBA", (spritesheet_width, spritesheet_height), (0, 0, 0, 0))
-
-    # Place frames in the spritesheet
     for i, frame in enumerate(frames):
         if i >= cols * rows:
-            break  # Don't exceed the grid size
-
+            break
         row = i // cols
         col = i % cols
-
         x = col * frame_width
         y = row * frame_height
-
-        # Ensure frame is the right size
         if frame.size != (frame_width, frame_height):
             frame = frame.resize((frame_width, frame_height), Image.Resampling.LANCZOS)
-
         spritesheet.paste(frame, (x, y))
-
-    # Save the spritesheet
     spritesheet.save(output_path, "PNG")
     return output_path
 
@@ -241,143 +214,100 @@ def spritesheet(
     """
     if not input.exists():
         raise FileNotFoundError(input)
-
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Load the spritesheet image
     with Image.open(input) as img:
         sheet_width, sheet_height = img.size
-
-        # Parse grid layout if provided
         if grid:
             try:
                 frames_per_row, frames_per_col = map(int, grid.split("x"))
-                # Calculate frame dimensions from grid
                 frame_width = sheet_width // frames_per_row
                 frame_height = sheet_height // frames_per_col
             except ValueError:
-                raise click.BadParameter("Grid must be in format 'WIDTHxHEIGHT' (e.g., '5x2')")
+                raise click.BadParameter(
+                    "Grid must be in format 'WIDTHxHEIGHT' (e.g., '5x2')"
+                ) from None
         elif frame_width and frame_height:
-            # Use provided pixel dimensions
-            frames_per_row = frames_per_row or (sheet_width // frame_width)
+            frames_per_row = frames_per_row or sheet_width // frame_width
             frames_per_col = sheet_height // frame_height
         else:
             raise click.BadParameter(
                 "Either --grid (e.g., '5x2') or --frame-width and --frame-height must be provided"
             )
-
-        # Validate dimensions
         if sheet_width % frames_per_row != 0:
             raise click.BadParameter(
-                f"Spritesheet width ({sheet_width}) is not divisible by frames per row ({frames_per_row})"
+                f"Spritesheet width ({sheet_width}) is not divisible by "
+                f"frames per row ({frames_per_row})"
             )
         if sheet_height % frames_per_col != 0:
             raise click.BadParameter(
-                f"Spritesheet height ({sheet_height}) is not divisible by frames per column ({frames_per_col})"
+                f"Spritesheet height ({sheet_height}) is not divisible by "
+                f"frames per column ({frames_per_col})"
             )
-
         total_frames = frames_per_row * frames_per_col
         max_frames = frames or total_frames
-
-        # Display processing information
         click.echo(f"Spritesheet: {sheet_width}x{sheet_height}")
         click.echo(f"Frame size: {frame_width}x{frame_height}")
         click.echo(f"Grid: {frames_per_row}x{frames_per_col}")
         click.echo(f"Total frames: {total_frames}")
         if frames:
             click.echo(f"Processing: {max_frames} frames")
-
         processed = 0
         frame_count = 0
-        processed_frames = []  # Store processed frames for spritesheet output
-
-        # Process each frame in the grid
+        processed_frames = []
         for row in range(frames_per_col):
             if frames and frame_count >= max_frames:
                 break
             for col in range(frames_per_row):
-                # Stop if we've processed the requested number of frames
                 if frames and frame_count >= max_frames:
                     break
-                # Calculate the pixel coordinates for this frame
                 x = col * frame_width
                 y = row * frame_height
-
-                # Extract the frame from the spritesheet
                 frame = img.crop((x, y, x + frame_width, y + frame_height))
-
-                # Save the frame temporarily for processing
-                # We need to save it because rembg expects file paths, not PIL Images
                 frame_path = output_dir / f"frame_{row:03d}_{col:03d}.png"
                 frame.save(frame_path)
-
                 try:
-                    # Define the output path for the processed frame
                     out_path = output_dir / f"frame_{row:03d}_{col:03d}_processed.png"
-
-                    # Skip if output exists and overwrite is not enabled
-                    if out_path.exists() and not overwrite:
+                    if out_path.exists() and (not overwrite):
                         click.echo(f"Skip exists: {out_path}")
-                        # Load existing processed frame for spritesheet
                         if output_spritesheet:
                             processed_frames.append(Image.open(out_path))
                         frame_count += 1
                         continue
-
-                    # Process the frame through background removal
                     _process_one(frame_path, out_path, overwrite)
                     processed += 1
                     frame_count += 1
                     click.echo(f"Processed frame {frame_count}/{max_frames}: {out_path}")
-
-                    # Load processed frame for spritesheet output
                     if output_spritesheet:
                         processed_frames.append(Image.open(out_path))
-
-                    # Clean up the temporary frame file
                     frame_path.unlink()
-
                 except Exception as e:
                     click.echo(f"Error processing frame {frame_count + 1}: {e}", err=True)
-                    # Ensure temporary file is cleaned up even on error
                     if frame_path.exists():
                         frame_path.unlink()
                     frame_count += 1
-
-        # Create combined spritesheet if requested
         if output_spritesheet and processed_frames:
             click.echo(f"Creating combined spritesheet: {output_spritesheet}")
-
-            # Calculate the layout for the combined spritesheet
             num_frames = len(processed_frames)
             if frames_per_row:
                 cols = min(frames_per_row, num_frames)
-                rows = (num_frames + cols - 1) // cols  # Ceiling division
+                rows = (num_frames + cols - 1) // cols
             else:
-                # Auto-arrange in a roughly square layout
                 cols = int(num_frames**0.5)
                 if cols * cols < num_frames:
                     cols += 1
                 rows = (num_frames + cols - 1) // cols
-
-            # Create the combined spritesheet
             combined_width = cols * frame_width
             combined_height = rows * frame_height
             combined_img = Image.new("RGBA", (combined_width, combined_height), (0, 0, 0, 0))
-
-            # Place each processed frame in the combined image
             for i, processed_frame in enumerate(processed_frames):
                 row = i // cols
                 col = i % cols
                 x = col * frame_width
                 y = row * frame_height
                 combined_img.paste(processed_frame, (x, y))
-
-            # Save the combined spritesheet
             combined_img.save(output_spritesheet)
             click.echo(f"Saved combined spritesheet: {output_spritesheet}")
             click.echo(f"Combined layout: {cols}x{rows} ({num_frames} frames)")
-
     click.echo(f"Done. Processed: {processed}/{total_frames} frames")
 
 
@@ -427,11 +357,9 @@ def video(
     """
     if output is None:
         output = input.with_suffix(".gif")
-
-    if output.exists() and not overwrite:
+    if output.exists() and (not overwrite):
         click.echo(f"Error: Output exists (use --overwrite): {output}", err=True)
         return
-
     try:
         from .video import video_to_gif
 
@@ -471,11 +399,9 @@ def video_spritesheet(
     """
     if output is None:
         output = input.with_suffix("_spritesheet.png")
-
-    if output.exists() and not overwrite:
+    if output.exists() and (not overwrite):
         click.echo(f"Error: Output exists (use --overwrite): {output}", err=True)
         return
-
     try:
         from .video import video_to_spritesheet
 
@@ -522,9 +448,7 @@ def pipeline(
     """
     if output_dir is None:
         output_dir = input.parent / f"{input.stem}_processed"
-
     output_dir.mkdir(parents=True, exist_ok=True)
-
     try:
         from .pipeline import (
             VideoPipelineConfig,
@@ -535,7 +459,6 @@ def pipeline(
         config = VideoPipelineConfig(
             fps=fps, duration=duration, grid=grid, frames=frames, model=model
         )
-
         if all_models:
             results = process_video_pipeline_all_models(
                 input, output_dir, config, keep_intermediates
@@ -566,16 +489,13 @@ def analyze(input: Path) -> None:
         from .pipeline import analyze_video_for_pipeline
 
         analysis = analyze_video_for_pipeline(input)
-
         click.echo(f"📹 Video Analysis: {input.name}")
         click.echo(f"   Duration: {analysis['video_analysis']['duration']:.1f}s")
         click.echo(f"   FPS: {analysis['video_analysis']['fps']:.1f}")
-        click.echo(
-            f"   Size: {analysis['video_analysis']['size'][0]}x{analysis['video_analysis']['size'][1]}"
-        )
+        size = analysis["video_analysis"]["size"]
+        click.echo(f"   Size: {size[0]}x{size[1]}")
         click.echo(f"   File Size: {analysis['video_analysis']['file_size'] / 1024 / 1024:.1f} MB")
         click.echo()
-
         click.echo("💡 Recommended Settings:")
         rec = analysis["recommendations"]
         click.echo(f"   FPS: {rec['fps']}")
@@ -585,18 +505,17 @@ def analyze(input: Path) -> None:
         click.echo(f"   Max Size: {rec['max_width']}x{rec['max_height']}")
         click.echo(f"   Estimated Processing Time: {rec['estimated_processing_time']}")
         click.echo()
-
         click.echo("🚀 Suggested Command:")
         click.echo(
-            f"   sprite-processor pipeline {input.name} --fps {rec['fps']} --duration {rec['duration']:.1f} --grid {rec['grid']} --frames {rec['frames']}"
+            f"   sprite-processor pipeline {input.name} "
+            f"--fps {rec['fps']} --duration {rec['duration']:.1f} "
+            f"--grid {rec['grid']} --frames {rec['frames']}"
         )
-
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
 
 
 if __name__ == "__main__":
-    # Allows python -m bgremove.cli ...
     try:
         app()
     except Exception as e:

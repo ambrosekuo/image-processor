@@ -106,7 +106,7 @@ bgremove watch drop_folder/ processed_assets/
 [Frame 1] [Frame 2]
 [Frame 3] [Frame 4]
 
-# 3x2 Layout (6 frames)  
+# 3x2 Layout (6 frames)
 [Frame 1] [Frame 2] [Frame 3]
 [Frame 4] [Frame 5] [Frame 6]
 

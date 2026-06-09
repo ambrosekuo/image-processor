@@ -8,6 +8,7 @@ interface AllModelsSpritesheetResultsProps {
     isProcessing: boolean
     results: SpritesheetAllModelsResponse | null
     originalFile: File | null
+    removeBackground?: boolean
 }
 
 const modelInfo = {
@@ -49,7 +50,7 @@ const modelInfo = {
     }
 }
 
-export function AllModelsSpritesheetResults({ isProcessing, results, originalFile }: AllModelsSpritesheetResultsProps) {
+export function AllModelsSpritesheetResults({ isProcessing, results, originalFile, removeBackground = true }: AllModelsSpritesheetResultsProps) {
     const [selectedModel, setSelectedModel] = useState<string | null>(null)
 
     if (!originalFile && !isProcessing && !results) {
@@ -72,17 +73,23 @@ export function AllModelsSpritesheetResults({ isProcessing, results, originalFil
                 <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
                     <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
                 </div>
-                <h3 className="text-lg font-semibold text-blue-900 mb-2">Processing Spritesheet with All Models</h3>
+                <h3 className="text-lg font-semibold text-blue-900 mb-2">
+                    {removeBackground ? 'Processing Spritesheet with All Models' : 'Extracting Spritesheet with All Models'}
+                </h3>
                 <p className="text-blue-700 mb-4">
-                    AI is processing your spritesheet with 6 different models. This typically takes 1-2 minutes...
+                    {removeBackground
+                        ? 'AI is processing your spritesheet with 6 different models. This typically takes 1-2 minutes...'
+                        : 'Building identical extract-only spritesheets for each model slot (no AI background removal).'}
                 </p>
                 <div className="space-y-2">
                     <div className="w-full bg-blue-200 rounded-full h-2">
                         <div className="bg-blue-600 h-2 rounded-full animate-pulse" style={{ width: '60%' }}></div>
                     </div>
-                    <p className="text-sm text-blue-600">
-                        Please be patient - this is processing each frame with 6 different AI models
-                    </p>
+                    {removeBackground && (
+                        <p className="text-sm text-blue-600">
+                            Please be patient - this is processing each frame with 6 different AI models
+                        </p>
+                    )}
                 </div>
             </div>
         )

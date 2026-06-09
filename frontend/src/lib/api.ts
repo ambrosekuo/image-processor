@@ -6,7 +6,7 @@ console.log('API_BASE_URL:', API_BASE_URL) // Debug log
 
 export const api = axios.create({
     baseURL: API_BASE_URL,
-    timeout: 120000, // 2 minutes for spritesheet processing with all models
+    timeout: 600000, // 10 minutes — large GIFs (100+ frames) need time for bg removal
 })
 
 // Add request interceptor for debugging
@@ -104,14 +104,24 @@ export interface SpritesheetConfig {
     frames?: number
     frameWidth?: number
     frameHeight?: number
+    removeBackground?: boolean
+    sampleEvenly?: boolean
 }
+
+/** Long timeout for heavy GIF/spritesheet jobs (ms). */
+const PROCESSING_TIMEOUT_MS = 600_000
 
 export interface SpritesheetResponse {
     success: boolean
     message?: string
     downloadUrl?: string
     spritesheetUrl?: string
-    config?: any
+    has_transparency?: boolean
+    config?: {
+        has_transparency?: boolean
+        remove_background?: boolean
+        [key: string]: unknown
+    }
 }
 
 export interface VideoAnalysisResponse {
@@ -124,6 +134,16 @@ export interface VideoAnalysisResponse {
         recommended_fps: number
         recommended_duration: number
         recommended_frames: number
+        file_size: number
+    }
+}
+
+export interface GifAnalysisResponse {
+    filename: string
+    analysis: {
+        frames: number
+        size: [number, number]
+        recommended_grid: string
         file_size: number
     }
 }
@@ -202,8 +222,12 @@ export const apiClient = {
         if (config.frameHeight) {
             formData.append('frameHeight', config.frameHeight.toString())
         }
+        formData.append('remove_background', (config.removeBackground ?? true) ? 'true' : 'false')
+        formData.append('sample_evenly', (config.sampleEvenly ?? true) ? 'true' : 'false')
 
-        const response = await api.post('/process/spritesheet-all-models', formData)
+        const response = await api.post('/process/spritesheet-all-models', formData, {
+            timeout: PROCESSING_TIMEOUT_MS,
+        })
 
         return response.data
     },
@@ -225,8 +249,12 @@ export const apiClient = {
         if (config.frameHeight) {
             formData.append('frameHeight', config.frameHeight.toString())
         }
+        formData.append('remove_background', (config.removeBackground ?? true) ? 'true' : 'false')
+        formData.append('sample_evenly', (config.sampleEvenly ?? true) ? 'true' : 'false')
 
-        const response = await api.post('/process/spritesheet', formData)
+        const response = await api.post('/process/spritesheet', formData, {
+            timeout: PROCESSING_TIMEOUT_MS,
+        })
         const data = response.data
 
         // Convert base64 spritesheet to download URL
@@ -240,7 +268,8 @@ export const apiClient = {
                 success: true,
                 downloadUrl,
                 config: data.config,
-                spritesheetUrl: downloadUrl
+                spritesheetUrl: downloadUrl,
+                has_transparency: data.has_transparency ?? data.config?.has_transparency,
             }
         }
 
@@ -267,6 +296,10 @@ export const apiClient = {
         if (config.frameHeight) {
             formData.append('frameHeight', config.frameHeight.toString())
         }
+        formData.append('remove_background', (config.removeBackground ?? true) ? 'true' : 'false')
+        if (config.sampleEvenly !== undefined) {
+            formData.append('sample_evenly', config.sampleEvenly ? 'true' : 'false')
+        }
 
         const response = await api.post('/process/gif-to-spritesheet', formData)
 
@@ -279,6 +312,15 @@ export const apiClient = {
         formData.append('file', file)
 
         const response = await api.post('/analyze/video', formData)
+        return response.data
+    },
+
+    // GIF analysis
+    async analyzeGif(file: File): Promise<GifAnalysisResponse> {
+        const formData = new FormData()
+        formData.append('file', file)
+
+        const response = await api.post('/analyze/gif', formData)
         return response.data
     },
 

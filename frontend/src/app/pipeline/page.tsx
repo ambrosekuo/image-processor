@@ -35,8 +35,11 @@ export default function PipelinePage() {
     })
     const [spritesheetConfig, setSpritesheetConfig] = useState<SpritesheetConfig>({
         grid: 'auto',
-        frames: 10
+        frames: 10,
+        removeBackground: true,
+        sampleEvenly: true,
     })
+    const [removeBackground, setRemoveBackground] = useState(true)
     const [processingMode, setProcessingMode] = useState<'single' | 'all'>('all')
     const [frameRate, setFrameRate] = useState(10)
     const [generateMultipleRates, setGenerateMultipleRates] = useState(false)
@@ -44,6 +47,30 @@ export default function PipelinePage() {
     const [spritesheetResults, setSpritesheetResults] = useState<{ [key: string]: { url: string, blob: Blob } }>({})
 
     const [error, setError] = useState<string | null>(null)
+
+    const analyzeGif = async (file: File) => {
+        try {
+            const result = await apiClient.analyzeGif(file)
+            const { frames, recommended_grid } = result.analysis
+            const [cols, rows] = recommended_grid.split('x').map(Number)
+
+            setDetectedGrid({ rows, cols })
+            setSpritesheetConfig(prev => ({
+                ...prev,
+                grid: recommended_grid,
+                frames,
+            }))
+            setSpritesheetAnalysis({
+                best_guess: {
+                    grid: recommended_grid,
+                    total_frames: frames,
+                },
+            })
+        } catch (err) {
+            console.error('GIF analysis failed:', err)
+            setDetectedGrid({ rows: 2, cols: 5 })
+        }
+    }
 
     const analyzeSpritesheet = async (file: File) => {
         try {
@@ -127,8 +154,10 @@ export default function PipelinePage() {
             setSpritesheetAnalysis(null)
             setDetectedGrid(null)
 
-            // Auto-analyze spritesheets
-            if (selectedMode === 'spritesheet' || selectedMode === 'gif' || (file.type === 'image/png' || file.type === 'image/jpeg' || file.type === 'image/gif')) {
+            // Auto-analyze uploaded media
+            if (selectedMode === 'gif' || file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif')) {
+                analyzeGif(file)
+            } else if (selectedMode === 'spritesheet' || file.type === 'image/png' || file.type === 'image/jpeg') {
                 console.log('Triggering spritesheet analysis for:', file.name, 'mode:', selectedMode)
                 analyzeSpritesheet(file)
             }
@@ -232,11 +261,16 @@ export default function PipelinePage() {
                 }
             } else {
                 // For GIF mode, create spritesheet
+                const config: SpritesheetConfig = {
+                    ...spritesheetConfig,
+                    removeBackground,
+                    sampleEvenly: true,
+                }
                 if (processingMode === 'all') {
-                    const response = await apiClient.processSpritesheetAllModels(fileToProcess, spritesheetConfig)
+                    const response = await apiClient.processSpritesheetAllModels(fileToProcess, config)
                     setAllModelsResult(response)
                 } else {
-                    const response = await apiClient.processSpritesheet(fileToProcess, spritesheetConfig)
+                    const response = await apiClient.processSpritesheet(fileToProcess, config)
                     if (response.success && response.downloadUrl) {
                         setSpritesheetUrl(response.downloadUrl)
 
@@ -778,6 +812,25 @@ export default function PipelinePage() {
                                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                             />
                                         </div>
+                                    )}
+
+                                    {selectedMode === 'gif' && (
+                                        <label className="flex items-start gap-3 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={removeBackground}
+                                                onChange={(e) => setRemoveBackground(e.target.checked)}
+                                                className="mt-1 rounded"
+                                            />
+                                            <span>
+                                                <span className="block text-sm font-medium text-gray-900">
+                                                    Remove background (AI)
+                                                </span>
+                                                <span className="block text-xs text-gray-500">
+                                                    Uncheck to extract frames only — much faster, no rembg pass.
+                                                </span>
+                                            </span>
+                                        </label>
                                     )}
 
                                     <div>
